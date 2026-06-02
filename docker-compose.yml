@@ -1,0 +1,55 @@
+services:
+  mongo:
+    image: mongo:7.0
+    container_name: finance_mongo
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: finance_ledger
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    container_name: finance_backend
+    restart: unless-stopped
+    ports:
+      - '5000:5000'
+    env_file:
+      - ./backend/.env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/finance_ledger
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/server.js:/app/server.js
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    container_name: finance_frontend
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    env_file:
+      - ./frontend/.env
+    volumes:
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:

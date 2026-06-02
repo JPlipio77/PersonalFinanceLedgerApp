@@ -1,0 +1,171 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  # ── Job 1: build full production images and push to GHCR ──────────────────
+  build-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.sha.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set short SHA tag
+        id: sha
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ github.repository }}/backend:${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ github.repository }}/backend:latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ github.repository }}/frontend:${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ github.repository }}/frontend:latest
+
+  # ── Job 2: slim the pushed images and push slim variants ───────────────────
+  slim-images:
+    name: Slim Docker Images
+    runs-on: ubuntu-latest
+    needs: build-push
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ needs.build-push.outputs.tag }}
+      BACKEND_FULL:  ghcr.io/${{ github.repository }}/backend:latest
+      FRONTEND_FULL: ghcr.io/${{ github.repository }}/frontend:latest
+      BACKEND_SLIM:  ghcr.io/${{ github.repository }}/backend:slim
+      FRONTEND_SLIM: ghcr.io/${{ github.repository }}/frontend:slim
+
+    steps:
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install SlimToolkit
+        run: |
+          SLIM_VERSION="1.40.11"
+          curl -fsSL -o slim.tar.gz \
+            "https://github.com/slimtoolkit/slim/releases/download/${SLIM_VERSION}/dist_linux.tar.gz"
+          tar xzf slim.tar.gz
+          sudo mv dist_linux/slim       /usr/local/bin/slim
+          sudo mv dist_linux/slim-sensor /usr/local/bin/slim-sensor
+          slim version
+
+      - name: Pull full images
+        run: |
+          docker pull "$BACKEND_FULL"
+          docker pull "$FRONTEND_FULL"
+
+      - name: Record full image sizes
+        id: full-sizes
+        run: |
+          be=$(docker inspect "$BACKEND_FULL"  --format='{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
+          fe=$(docker inspect "$FRONTEND_FULL" --format='{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
+          echo "backend=$be"   >> $GITHUB_OUTPUT
+          echo "frontend=$fe"  >> $GITHUB_OUTPUT
+          echo "Backend full: $be  |  Frontend full: $fe"
+
+      # Backend: skip HTTP probe (requires MongoDB at startup).
+      # Preserve /app and the node binary; slim removes unused OS packages.
+      - name: Slim backend image
+        run: |
+          slim build \
+            --include-path /app \
+            --include-bin  /usr/local/bin/node \
+            --http-probe=false \
+            --continue-after exec \
+            --exec "node -e 'process.exit(0)'" \
+            --exec-wait 5 \
+            --tag "$BACKEND_SLIM" \
+            --tag "ghcr.io/${{ github.repository }}/backend:${{ env.TAG }}-slim" \
+            "$BACKEND_FULL"
+
+      # Frontend: nginx + static files — HTTP probe exercises all paths.
+      - name: Slim frontend image
+        run: |
+          slim build \
+            --http-probe \
+            --http-probe-cmd "GET /" \
+            --expose 80 \
+            --tag "$FRONTEND_SLIM" \
+            --tag "ghcr.io/${{ github.repository }}/frontend:${{ env.TAG }}-slim" \
+            "$FRONTEND_FULL"
+
+      - name: Push slim images
+        run: |
+          docker push "$BACKEND_SLIM"
+          docker push "ghcr.io/${{ github.repository }}/backend:${{ env.TAG }}-slim"
+          docker push "$FRONTEND_SLIM"
+          docker push "ghcr.io/${{ github.repository }}/frontend:${{ env.TAG }}-slim"
+
+      - name: Record slim image sizes
+        id: slim-sizes
+        run: |
+          be=$(docker inspect "$BACKEND_SLIM"  --format='{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
+          fe=$(docker inspect "$FRONTEND_SLIM" --format='{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
+          echo "backend=$be"   >> $GITHUB_OUTPUT
+          echo "frontend=$fe"  >> $GITHUB_OUTPUT
+
+      - name: Write job summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          ### 🐳 Docker Image Deploy — \`${{ env.TAG }}\`
+
+          | Image | Full size | Slim size | Tags |
+          |---|---|---|---|
+          | Backend  | ${{ steps.full-sizes.outputs.backend }}  | ${{ steps.slim-sizes.outputs.backend }}  | \`latest\`, \`${{ env.TAG }}\`, \`slim\`, \`${{ env.TAG }}-slim\` |
+          | Frontend | ${{ steps.full-sizes.outputs.frontend }} | ${{ steps.slim-sizes.outputs.frontend }} | \`latest\`, \`${{ env.TAG }}\`, \`slim\`, \`${{ env.TAG }}-slim\` |
+
+          #### Registry
+          \`\`\`
+          ghcr.io/${{ github.repository }}/backend:slim
+          ghcr.io/${{ github.repository }}/frontend:slim
+          \`\`\`
+          EOF
+
+      - name: Trigger staging deploy (optional)
+        if: ${{ env.DEPLOY_HOOK_URL != '' }}
+        env:
+          DEPLOY_HOOK_URL: ${{ secrets.DEPLOY_HOOK_URL }}
+        run: |
+          curl -X POST "$DEPLOY_HOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"tag\":\"${{ env.TAG }}-slim\"}"

@@ -1,0 +1,19 @@
+{
+  "name": "personal-finance-ledger",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "test:all": "concurrently --kill-others-on-fail \"npm test --workspace=backend\" \"npm test --workspace=frontend\"",
+    "test:coverage": "concurrently --kill-others-on-fail \"npm run test:coverage --workspace=backend\" \"npm run test:coverage --workspace=frontend\"",
+    "lint": "concurrently \"npm run lint --workspace=backend\" \"npm run lint --workspace=frontend\"",
+    "build": "npm run build --workspace=frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
