@@ -216,7 +216,7 @@ export default function LoginPage() {
             {forgotSent ? (
               <>
                 <p style={styles.modalText}>
-                  If that email address is registered, we've sent a password reset link.
+                  If that email address is registered, we&apos;ve sent a password reset link.
                   Please check your inbox (and spam folder).
                 </p>
                 <button style={styles.button} onClick={() => setShowForgot(false)}>Close</button>
@@ -224,7 +224,7 @@ export default function LoginPage() {
             ) : (
               <form onSubmit={handleForgotPassword}>
                 <p style={styles.modalText}>
-                  Enter your email address and we'll send you a link to reset your password.
+                  Enter your email address and we&apos;ll send you a link to reset your password.
                 </p>
                 <input
                   style={styles.input}

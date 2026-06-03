@@ -2,7 +2,7 @@ const Budget = require('../models/Budget');
 const Transaction = require('../models/Transaction');
 const Category = require('../models/Category');
 const asyncHandler = require('../utils/asyncHandler');
-const { success, created, error, paginated } = require('../utils/apiResponse');
+const { success, created, error } = require('../utils/apiResponse');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

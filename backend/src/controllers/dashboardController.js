@@ -46,7 +46,6 @@ const getOverview = asyncHandler(async (req, res) => {
   // Budget adherence: % of budgets where spending is within limit
   let adherenceRate = 1;
   if (budgets.length > 0) {
-    const budgetIds = budgets.map(b => b._id);
     const spending = await Transaction.aggregate([
       { $match: { userId, isDeleted: false, type: 'expense', date: { $gte: start, $lt: end } } },
       { $group: { _id: '$category', total: { $sum: '$amountUSD' } } },

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  BarChart, Bar, LineChart, Line,
+  BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
 import useReports from '../hooks/useReports';
