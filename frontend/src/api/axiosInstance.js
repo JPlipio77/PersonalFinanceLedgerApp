@@ -9,7 +9,8 @@ const axiosInstance = axios.create({
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401 && window.location.pathname !== '/login') {
+    const publicPaths = ['/login', '/reset-password'];
+    if (error.response?.status === 401 && !publicPaths.some(p => window.location.pathname.startsWith(p))) {
       window.location.href = '/login';
     }
     return Promise.reject(error);

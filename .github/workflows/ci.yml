@@ -4,7 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   backend-test:
@@ -34,10 +34,13 @@ jobs:
         run: npm run test:coverage
         env:
           NODE_ENV: test
+          MONGOMS_VERSION: '7.0.14'
+          MONGOMS_DOWNLOAD_TIMEOUT: '120000'
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           directory: backend/coverage
           flags: backend
           fail_ci_if_error: false
@@ -69,8 +72,9 @@ jobs:
         run: npm run test:coverage
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           directory: frontend/coverage
           flags: frontend
           fail_ci_if_error: false
@@ -85,13 +89,13 @@ jobs:
 
       - name: Create backend .env
         run: |
-          cp .env.example backend/.env
+          cp backend/.env.example backend/.env
           echo "SESSION_SECRET=$(openssl rand -hex 32)" >> backend/.env
           echo "MONGODB_URI=mongodb://mongo:27017/finance_ledger" >> backend/.env
 
       - name: Create frontend .env
         run: |
-          cp .env.example frontend/.env
+          cp frontend/.env.example frontend/.env
           echo "VITE_API_BASE_URL=http://localhost:5000/api" >> frontend/.env
 
       - name: Build Docker images (dev targets)
