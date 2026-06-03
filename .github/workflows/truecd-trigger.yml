@@ -1,0 +1,135 @@
+# =============================================================================
+# 77GSI TrueCD — GitHub Actions Trigger for personal-finance-ledger
+# =============================================================================
+# Fires on push to main (and any feature branch) and on PRs targeting main.
+# Calls the WEBHOOK-TRIGGER-CQD-NEXA Jenkins job via /buildWithParameters,
+# then polls for completion and mirrors the result back to GitHub.
+#
+# Required GitHub Secrets (set in repo Settings → Secrets and variables → Actions):
+#   JENKINS_URL          — https://truecd-jenkins.77dev.com
+#   JENKINS_USER         — Jenkins username (service account)
+#   JENKINS_API_TOKEN    — Jenkins API token for that user
+#
+# Optional overrides (set as repo variables or edit defaults below):
+#   PACT_ROLE            — provider | consumer | both | none  (default: none)
+#   GITHUB_CREDS_ID      — Jenkins credentials ID for GitHub  (default: github-creds)
+# =============================================================================
+
+name: TrueCD Pipeline Trigger
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'fix/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  trigger-truecd:
+    name: Trigger TrueCD / Nexa Orchestrator
+    runs-on: ubuntu-latest
+
+    env:
+      JENKINS_JOB_URL: ${{ secrets.JENKINS_URL }}/job/WEBHOOK-TRIGGER-CQD-NEXA
+      APP_NAME: personal-finance-ledger
+      PACT_ROLE: ${{ vars.PACT_ROLE || 'none' }}
+      GITHUB_CREDS_ID: ${{ vars.GITHUB_CREDS_ID || 'github-creds' }}
+
+    steps:
+      - name: Trigger Jenkins build
+        id: trigger
+        run: |
+          BRANCH="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
+          PARAMS="PROJECT_REPO=${{ github.server_url }}/${{ github.repository }}.git"
+          PARAMS+="&APP_NAME=${APP_NAME}"
+          PARAMS+="&BRANCH_NAME=${BRANCH}"
+          PARAMS+="&GIT_SHA=${{ github.sha }}"
+          PARAMS+="&TRIGGERED_BY=github-actions"
+          PARAMS+="&GITHUB_CREDS_ID=${GITHUB_CREDS_ID}"
+          PARAMS+="&PACT_ROLE=${PACT_ROLE}"
+
+          # Trigger the build and capture the queue URL from the Location header
+          QUEUE_URL=$(curl -s -o /dev/null -D - \
+            -u "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_API_TOKEN }}" \
+            -X POST "${JENKINS_JOB_URL}/buildWithParameters?${PARAMS}" \
+            | grep -i "^location:" | tr -d '\r' | awk '{print $2}')
+
+          if [ -z "$QUEUE_URL" ]; then
+            echo "ERROR: Jenkins did not return a queue URL — check credentials and job name."
+            exit 1
+          fi
+
+          echo "Queued: ${QUEUE_URL}"
+          echo "queue_url=${QUEUE_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for build to leave queue
+        id: dequeue
+        run: |
+          QUEUE_URL="${{ steps.trigger.outputs.queue_url }}"
+          echo "Waiting for build to start..."
+
+          for i in $(seq 1 30); do
+            sleep 5
+            RESPONSE=$(curl -s -u "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_API_TOKEN }}" \
+              "${QUEUE_URL}api/json")
+            BUILD_URL=$(echo "$RESPONSE" | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('executable',{}).get('url',''))" 2>/dev/null)
+            if [ -n "$BUILD_URL" ]; then
+              echo "Build started: ${BUILD_URL}"
+              echo "build_url=${BUILD_URL}" >> "$GITHUB_OUTPUT"
+              break
+            fi
+            echo "  attempt ${i}/30 — still queued..."
+          done
+
+          if [ -z "$BUILD_URL" ]; then
+            echo "ERROR: Build did not start within 150 s."
+            exit 1
+          fi
+
+      - name: Poll Jenkins build until complete
+        id: poll
+        run: |
+          BUILD_URL="${{ steps.dequeue.outputs.build_url }}"
+          echo "Polling ${BUILD_URL} ..."
+
+          for i in $(seq 1 120); do
+            sleep 30
+            RESPONSE=$(curl -s -u "${{ secrets.JENKINS_USER }}:${{ secrets.JENKINS_API_TOKEN }}" \
+              "${BUILD_URL}api/json?tree=building,result,duration,estimatedDuration")
+            BUILDING=$(echo "$RESPONSE" | python3 -c \
+              "import sys,json; print(json.load(sys.stdin).get('building','true'))" 2>/dev/null)
+            RESULT=$(echo "$RESPONSE"  | python3 -c \
+              "import sys,json; print(json.load(sys.stdin).get('result') or '')" 2>/dev/null)
+
+            echo "  [${i}/120] building=${BUILDING} result=${RESULT}"
+
+            if [ "$BUILDING" = "False" ] || [ "$BUILDING" = "false" ]; then
+              echo "result=${RESULT}" >> "$GITHUB_OUTPUT"
+              echo "build_url=${BUILD_URL}" >> "$GITHUB_OUTPUT"
+              break
+            fi
+          done
+
+          if [ -z "$RESULT" ]; then
+            echo "ERROR: Timed out after 60 min waiting for Jenkins build."
+            exit 1
+          fi
+
+      - name: Evaluate result
+        run: |
+          RESULT="${{ steps.poll.outputs.result }}"
+          BUILD_URL="${{ steps.poll.outputs.build_url }}"
+          echo "Jenkins result: ${RESULT}"
+          echo "Build URL: ${BUILD_URL}"
+
+          if [ "$RESULT" != "SUCCESS" ]; then
+            echo "Pipeline ${RESULT} — see Jenkins for details: ${BUILD_URL}"
+            exit 1
+          fi
+
+          echo "All TrueCD gates passed."
