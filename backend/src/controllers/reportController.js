@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const Transaction = require('../models/Transaction');
 const Budget = require('../models/Budget');
 const asyncHandler = require('../utils/asyncHandler');

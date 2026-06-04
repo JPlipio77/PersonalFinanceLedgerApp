@@ -140,7 +140,7 @@ export default function BudgetsPage() {
         <p style={{ color: 'var(--color-danger)' }}>{error}</p>
       ) : budgets.length === 0 ? (
         <p style={{ color: 'var(--color-text-muted)', marginTop: '2rem', textAlign: 'center' }}>
-          No budgets set for {MONTHS[month - 1]} {year}. Click "+ Set Budget" to add one.
+          No budgets set for {MONTHS[month - 1]} {year}. Click &quot;+ Set Budget&quot; to add one.
         </p>
       ) : (
         <div style={styles.grid}>
