@@ -120,31 +120,26 @@ jobs:
     environment: staging
 
     steps:
+      - name: Load SSH key into agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+
+      - name: Add server to known hosts
+        run: ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
+
       - name: Pull and restart containers on staging server
         env:
+          STAGING_HOST:      ${{ secrets.STAGING_HOST }}
+          STAGING_USER:      ${{ secrets.STAGING_USER }}
           GHCR_READ_TOKEN:   ${{ secrets.GHCR_READ_TOKEN }}
           GITHUB_REPOSITORY: ${{ needs.build-and-package.outputs.image-repo }}
           GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
         run: |
-          # Write SSH key — use direct template substitution so GitHub inlines
-          # the key bytes before the shell processes the script (avoids env var newline corruption)
-          KEY_FILE="$(mktemp)"
-          cat > "$KEY_FILE" <<'__KEY__'
-          ${{ secrets.STAGING_SSH_KEY }}
-          __KEY__
-          # Strip any leading whitespace that heredoc indentation may add
-          sed -i 's/^[[:space:]]*//' "$KEY_FILE"
-          chmod 600 "$KEY_FILE"
-
-          HOST="${{ secrets.STAGING_HOST }}"
-          USER="${{ secrets.STAGING_USER }}"
           BACKEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/backend:staging-${GITHUB_SHA_SHORT}"
           FRONTEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/frontend:staging-${GITHUB_SHA_SHORT}"
 
-          ssh -i "$KEY_FILE" \
-            -o StrictHostKeyChecking=no \
-            -o BatchMode=yes \
-            "${USER}@${HOST}" \
+          ssh "${STAGING_USER}@${STAGING_HOST}" \
             env BACKEND_IMAGE="$BACKEND_IMAGE" \
                 FRONTEND_IMAGE="$FRONTEND_IMAGE" \
                 GHCR_TOKEN="$GHCR_READ_TOKEN" \
@@ -163,8 +158,6 @@ jobs:
             || { docker compose -f docker-compose.staging.yml logs --tail 60; exit 1; }
           echo "Deployment healthy: $BACKEND_IMAGE"
           REMOTE
-
-          rm -f "$KEY_FILE"
 
 
 # =============================================================================
