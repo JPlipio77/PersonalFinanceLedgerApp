@@ -89,8 +89,8 @@ jobs:
           curl -fsSL -o slim.tar.gz \
             "https://github.com/slimtoolkit/slim/releases/download/${SLIM_VERSION}/dist_linux.tar.gz"
           tar xzf slim.tar.gz
-          sudo mv dist_linux/slim       /usr/local/bin/slim
-          sudo mv dist_linux/slim-sensor /usr/local/bin/slim-sensor
+          sudo mv dist_linux/slim /usr/local/bin/slim
+          [ -f dist_linux/slim-sensor ] && sudo mv dist_linux/slim-sensor /usr/local/bin/slim-sensor || true
           slim version
 
       - name: Pull full images
@@ -177,7 +177,7 @@ jobs:
   # ── Job 3: dispatch to test repo after images are confirmed pushed ──────────
   dispatch-tests:
     name: Trigger Test Pipeline
-    needs: [build-push, slim-images]
+    needs: [build-push]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
