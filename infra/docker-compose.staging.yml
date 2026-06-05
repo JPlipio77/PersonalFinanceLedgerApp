@@ -1,0 +1,48 @@
+# Staging server compose — referenced by staging-ci.yml deploy step.
+# Place this file at /opt/staging/docker-compose.staging.yml on the server.
+# Set BACKEND_IMAGE and FRONTEND_IMAGE env vars before running.
+
+services:
+  mongo:
+    image: mongo:7.0
+    restart: unless-stopped
+    volumes:
+      - mongo_staging:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ledger-staging
+
+  backend:
+    image: ${BACKEND_IMAGE:-ghcr.io/OWNER/personal-finance-ledger/backend:staging-latest}
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - /opt/staging/.env
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/finance_ledger
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - ledger-staging
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ghcr.io/OWNER/personal-finance-ledger/frontend:staging-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - ledger-staging
+
+volumes:
+  mongo_staging:
+
+networks:
+  ledger-staging:

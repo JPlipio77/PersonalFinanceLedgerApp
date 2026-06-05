@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, master]
 
 jobs:
   # ── Job 1: build full production images and push to GHCR ──────────────────
@@ -169,3 +169,30 @@ jobs:
           curl -X POST "$DEPLOY_HOOK_URL" \
             -H "Content-Type: application/json" \
             -d "{\"tag\":\"${{ env.TAG }}-slim\"}"
+
+  # ── Job 3: dispatch to test repo after images are confirmed pushed ──────────
+  dispatch-tests:
+    name: Trigger Test Pipeline
+    needs: [build-push, slim-images]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Dispatch to ledger-app-tests
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TESTS_REPO_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: 'ledger-app-tests',
+              event_type: 'app-deployed',
+              client_payload: {
+                sha: context.sha,
+                image_tag: '${{ needs.build-push.outputs.tag }}',
+                image_base: `ghcr.io/${context.repo.owner}/${context.repo.repo}`,
+                triggered_by: context.actor,
+                source_run_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              }
+            });
+            core.info('Test pipeline dispatched for image tag: ${{ needs.build-push.outputs.tag }}');

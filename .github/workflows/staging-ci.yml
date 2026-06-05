@@ -1,0 +1,267 @@
+# =============================================================================
+# staging-ci.yml — Staging CI/CD for PersonalFinanceLedgerApp
+#
+# Execution order:
+#   build-and-package → staging-deploy → staging-tests
+#                                      ↘ security-scan (parallel)
+#
+# Required secrets:
+#   STAGING_HOST      — IP or hostname of the staging server
+#   STAGING_USER      — SSH username on the staging server
+#   STAGING_SSH_KEY   — Private key for SSH (matching server's authorized_keys)
+#   GHCR_READ_TOKEN   — Classic PAT with read:packages scope (for docker pull on server)
+#   QA_REPO_TOKEN     — Fine-grained PAT with Contents:read on qa-automation-manifest
+#
+# Required repository variables:
+#   STAGING_URL       — Full base URL of the staging deployment, e.g. http://your.server.ip:5000
+# =============================================================================
+
+name: Staging CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  REGISTRY:   ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+
+# =============================================================================
+# Job 1 — Build & Package
+# Builds backend and frontend Docker images, pushes to GHCR with staging tags,
+# and extracts a Jira ticket ID from the HEAD commit message for test routing.
+# =============================================================================
+jobs:
+  build-and-package:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-tag: ${{ steps.sha.outputs.tag }}
+      jira-id:   ${{ steps.extract-jira.outputs.jira_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Extract Jira ticket ID from commit message
+        id: extract-jira
+        run: |
+          COMMIT_MSG="$(git log -1 --pretty=%s)"
+          JIRA_ID="$(echo "${COMMIT_MSG}" | grep -oP '[A-Z]+-\d+' | head -1 || true)"
+          if [ -z "${JIRA_ID}" ]; then
+            JIRA_ID="FALLBACK"
+          fi
+          echo "jira_id=${JIRA_ID}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved Jira ID: ${JIRA_ID}"
+
+      - name: Set short SHA tag
+        id: sha
+        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAME }}/backend:staging-${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ env.IMAGE_NAME }}/backend:staging-latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAME }}/frontend:staging-${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ env.IMAGE_NAME }}/frontend:staging-latest
+
+
+# =============================================================================
+# Job 2 — Deploy to Staging
+# Pulls the newly pushed images on the staging server over SSH, restarts the
+# app via docker compose, and health-checks before triggering tests.
+# The staging server must have:
+#   - Docker + Docker Compose installed
+#   - /opt/staging/.env with MONGODB_URI, JWT_SECRET, NODE_ENV=staging, PORT=5000
+#   - /opt/staging/docker-compose.staging.yml referencing BACKEND_IMAGE/FRONTEND_IMAGE env vars
+# =============================================================================
+  staging-deploy:
+    name: Deploy to Staging
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - name: Pull and restart containers on staging server
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
+          GITHUB_ACTOR:      ${{ github.actor }}
+        with:
+          host:     ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key:      ${{ secrets.STAGING_SSH_KEY }}
+          envs:     GITHUB_REPOSITORY,GITHUB_SHA_SHORT,GITHUB_ACTOR
+          script: |
+            set -euo pipefail
+
+            BACKEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/backend:staging-${GITHUB_SHA_SHORT}"
+            FRONTEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/frontend:staging-${GITHUB_SHA_SHORT}"
+
+            echo "${{ secrets.GHCR_READ_TOKEN }}" | \
+              docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+            echo "Pulling: ${BACKEND_IMAGE}"
+            docker pull "${BACKEND_IMAGE}"
+            echo "Pulling: ${FRONTEND_IMAGE}"
+            docker pull "${FRONTEND_IMAGE}"
+
+            cd /opt/staging
+
+            export BACKEND_IMAGE="${BACKEND_IMAGE}"
+            export FRONTEND_IMAGE="${FRONTEND_IMAGE}"
+
+            docker compose -f docker-compose.staging.yml down --remove-orphans
+            docker compose -f docker-compose.staging.yml up -d
+
+            echo "Waiting 25s for app startup..."
+            sleep 25
+
+            curl --fail --silent --show-error \
+              http://localhost:5000/health \
+              || {
+                echo "Health check failed. Container logs:"
+                docker compose -f docker-compose.staging.yml logs --tail 60
+                exit 1
+              }
+
+            echo "Deployment healthy: ${BACKEND_IMAGE}"
+
+
+# =============================================================================
+# Job 3 — Staging Tests (Dynamic Discovery)
+# Resolves the test manifest for the triggering Jira ticket and runs
+# targeted Newman + Playwright tests against the live staging environment.
+# =============================================================================
+  staging-tests:
+    name: Staging Test Suite
+    needs: [build-and-package, staging-deploy]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout QA mono-repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/qa-automation-manifest
+          token:      ${{ secrets.QA_REPO_TOKEN }}
+          path:       qa-automation-manifest
+          fetch-depth: 1
+
+      - name: Resolve feature manifest or regression fallback
+        id: resolve
+        env:
+          JIRA_ID:      ${{ needs.build-and-package.outputs.jira-id }}
+          PROJECT_NAME: ${{ github.event.repository.name }}
+        run: |
+          MANIFEST="qa-automation-manifest/${PROJECT_NAME}/manifests/${JIRA_ID}.json"
+          FALLBACK="qa-automation-manifest/${PROJECT_NAME}/manifests/regression-default.json"
+
+          if [ "${JIRA_ID}" != "FALLBACK" ] && [ -f "${MANIFEST}" ]; then
+            echo "manifest_path=${MANIFEST}" >> "${GITHUB_OUTPUT}"
+            echo "test_mode=feature"         >> "${GITHUB_OUTPUT}"
+          elif [ -f "${FALLBACK}" ]; then
+            echo "manifest_path=${FALLBACK}" >> "${GITHUB_OUTPUT}"
+            echo "test_mode=regression"      >> "${GITHUB_OUTPUT}"
+          else
+            echo "ERROR: No manifest found for '${PROJECT_NAME}'." >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: qa-automation-manifest/package-lock.json
+
+      - name: Install Newman and Playwright
+        working-directory: qa-automation-manifest
+        run: npm ci
+
+      - name: Install Playwright browser (Chromium)
+        working-directory: qa-automation-manifest
+        run: npx playwright install --with-deps chromium
+
+      - name: Run targeted test suite
+        working-directory: qa-automation-manifest
+        env:
+          STAGING_URL:   ${{ vars.STAGING_URL }}
+          MANIFEST_PATH: ${{ steps.resolve.outputs.manifest_path }}
+          TEST_MODE:     ${{ steps.resolve.outputs.test_mode }}
+          PROJECT_NAME:  ${{ github.event.repository.name }}
+        run: bash scripts/run-qa-tests.sh
+
+      - name: Upload Newman HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-report-${{ github.sha }}
+          path: qa-automation-manifest/reports/newman/
+          if-no-files-found: warn
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: qa-automation-manifest/reports/playwright/
+          if-no-files-found: warn
+
+
+# =============================================================================
+# Job 4 — OWASP ZAP DAST Baseline (parallel with staging-tests)
+# Passive security sweep against the live staging URL.
+# fail_action: false keeps the pipeline green while logging findings to an Issue.
+# =============================================================================
+  security-scan:
+    name: OWASP ZAP Baseline DAST
+    needs: staging-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues:   write
+
+    steps:
+      - name: ZAP Baseline Scan against staging
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target:              ${{ vars.STAGING_URL }}
+          fail_action:         false
+          allow_issue_writing: true
+          artifact_name:       zap-baseline-${{ github.sha }}
+          cmd_options:         '-I -j'
