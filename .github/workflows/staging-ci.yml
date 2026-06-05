@@ -149,6 +149,7 @@ jobs:
             --arg b "$BACKEND_IMAGE" \
             --arg f "$FRONTEND_IMAGE" \
             '{commands: [
+              "#!/bin/bash",
               "set -euo pipefail",
               "set -a && source /opt/staging/.env && set +a",
               "echo \"$GHCR_TOKEN\" | docker login ghcr.io -u \"$GHCR_USER\" --password-stdin",
