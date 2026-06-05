@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 import { useBudgets } from '../hooks/useBudgets';
 import { useCategories } from '../hooks/useCategories';
 import { formatCurrency } from '../utils/formatCurrency';
@@ -53,6 +54,7 @@ function BudgetCard({ budget, onEdit, onDelete }) {
 const EMPTY_FORM = { category: '', limitAmount: '', alertThreshold: '0.8', month: now.getMonth() + 1, year: now.getFullYear() };
 
 export default function BudgetsPage() {
+  const { user } = useAuth();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year,  setYear]  = useState(now.getFullYear());
   const { budgets, summary, loading, error, upsert, update, remove } = useBudgets(month, year);
@@ -120,15 +122,15 @@ export default function BudgetsPage() {
         <div style={styles.summaryBanner}>
           <div style={styles.summaryItem}>
             <span style={styles.summaryLabel}>Total Budget</span>
-            <span style={styles.summaryValue}>{formatCurrency(summary.totalLimit)}</span>
+            <span style={styles.summaryValue}>{formatCurrency(summary.totalLimit, user?.currency)}</span>
           </div>
           <div style={styles.summaryItem}>
             <span style={styles.summaryLabel}>Total Spent</span>
-            <span style={{ ...styles.summaryValue, color: 'var(--color-danger)' }}>{formatCurrency(summary.totalSpent)}</span>
+            <span style={{ ...styles.summaryValue, color: 'var(--color-danger)' }}>{formatCurrency(summary.totalSpent, user?.currency)}</span>
           </div>
           <div style={styles.summaryItem}>
             <span style={styles.summaryLabel}>Remaining</span>
-            <span style={{ ...styles.summaryValue, color: 'var(--color-success)' }}>{formatCurrency(summary.totalRemaining)}</span>
+            <span style={{ ...styles.summaryValue, color: 'var(--color-success)' }}>{formatCurrency(summary.totalRemaining, user?.currency)}</span>
           </div>
         </div>
       )}
