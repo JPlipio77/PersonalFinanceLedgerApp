@@ -159,13 +159,14 @@ jobs:
               ("docker pull --quiet " + $b),
               ("docker pull --quiet " + $f),
               "cd /opt/staging",
+              "curl -fsSL https://raw.githubusercontent.com/JPlipio77/PersonalFinanceLedgerApp/main/infra/docker-compose.staging.yml -o docker-compose.staging.yml",
               ("export BACKEND_IMAGE=" + $b),
               ("export FRONTEND_IMAGE=" + $f),
               "docker compose -f docker-compose.staging.yml down --remove-orphans 2>/dev/null || true",
               "docker rm -f staging-mongo-1 staging-backend-1 staging-frontend-1 2>/dev/null || true",
               "docker compose -f docker-compose.staging.yml up -d 2>&1 | tail -5",
-              "sleep 25",
-              "curl --fail --silent --show-error http://localhost:5000/health || { docker compose -f docker-compose.staging.yml logs --tail 60; exit 1; }",
+              "sleep 40",
+              "curl --fail --silent --show-error --max-time 15 http://localhost:5000/health || { docker compose -f docker-compose.staging.yml logs --tail 60; exit 1; }",
               ("echo \"Deploy healthy: " + $b + "\"")
             ]}')
 
