@@ -119,27 +119,43 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
 
+    permissions:
+      id-token: write
+      contents: read
+
     steps:
-      - name: Load SSH key into agent
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          ssh-private-key: ${{ secrets.STAGING_SSH_KEY }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ap-southeast-1
 
-      - name: Add server to known hosts
-        run: ssh-keyscan -H ${{ secrets.STAGING_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Pull and restart containers on staging server
+      - name: Deploy via EC2 Instance Connect (ephemeral key — no stored SSH key needed)
         env:
           STAGING_HOST:      ${{ secrets.STAGING_HOST }}
           STAGING_USER:      ${{ secrets.STAGING_USER }}
           GHCR_READ_TOKEN:   ${{ secrets.GHCR_READ_TOKEN }}
           GITHUB_REPOSITORY: ${{ needs.build-and-package.outputs.image-repo }}
           GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
+          INSTANCE_ID:       ${{ secrets.STAGING_INSTANCE_ID }}
         run: |
+          # Generate ephemeral key on the Linux runner (guaranteed correct format)
+          ssh-keygen -t ed25519 -f /tmp/ec2_connect_key -N '' -q
+
+          # Push public key to instance (valid 60 seconds)
+          aws ec2-instance-connect send-ssh-public-key \
+            --instance-id "$INSTANCE_ID" \
+            --os-user "$STAGING_USER" \
+            --ssh-public-key file:///tmp/ec2_connect_key.pub
+
           BACKEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/backend:staging-${GITHUB_SHA_SHORT}"
           FRONTEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/frontend:staging-${GITHUB_SHA_SHORT}"
 
-          ssh "${STAGING_USER}@${STAGING_HOST}" \
+          ssh -i /tmp/ec2_connect_key \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            "${STAGING_USER}@${STAGING_HOST}" \
             env BACKEND_IMAGE="$BACKEND_IMAGE" \
                 FRONTEND_IMAGE="$FRONTEND_IMAGE" \
                 GHCR_TOKEN="$GHCR_READ_TOKEN" \
@@ -158,6 +174,8 @@ jobs:
             || { docker compose -f docker-compose.staging.yml logs --tail 60; exit 1; }
           echo "Deployment healthy: $BACKEND_IMAGE"
           REMOTE
+
+          rm -f /tmp/ec2_connect_key /tmp/ec2_connect_key.pub
 
 
 # =============================================================================
