@@ -230,13 +230,14 @@ jobs:
           JIRA_ID:      ${{ needs.build-and-package.outputs.jira-id }}
           PROJECT_NAME: ${{ github.event.repository.name }}
         run: |
-          MANIFEST="qa-automation-manifest/${PROJECT_NAME}/manifests/${JIRA_ID}.json"
-          FALLBACK="qa-automation-manifest/${PROJECT_NAME}/manifests/regression-default.json"
+          # Paths relative to qa-automation-manifest/ (the script's working-directory)
+          MANIFEST="${PROJECT_NAME}/manifests/${JIRA_ID}.json"
+          FALLBACK="${PROJECT_NAME}/manifests/regression-default.json"
 
-          if [ "${JIRA_ID}" != "FALLBACK" ] && [ -f "${MANIFEST}" ]; then
+          if [ "${JIRA_ID}" != "FALLBACK" ] && [ -f "qa-automation-manifest/${MANIFEST}" ]; then
             echo "manifest_path=${MANIFEST}" >> "${GITHUB_OUTPUT}"
             echo "test_mode=feature"         >> "${GITHUB_OUTPUT}"
-          elif [ -f "${FALLBACK}" ]; then
+          elif [ -f "qa-automation-manifest/${FALLBACK}" ]; then
             echo "manifest_path=${FALLBACK}" >> "${GITHUB_OUTPUT}"
             echo "test_mode=regression"      >> "${GITHUB_OUTPUT}"
           else
@@ -304,5 +305,5 @@ jobs:
           target:              ${{ vars.STAGING_URL }}
           fail_action:         false
           allow_issue_writing: true
-          artifact_name:       zap-baseline-${{ github.sha }}
+          artifact_name:       zap-baseline-${{ github.run_id }}
           cmd_options:         '-I -j'
