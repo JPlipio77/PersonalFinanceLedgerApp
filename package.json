@@ -13,6 +13,9 @@
     "lint": "concurrently \"npm run lint --workspace=backend\" \"npm run lint --workspace=frontend\"",
     "build": "npm run build --workspace=frontend"
   },
+  "overrides": {
+    "uuid": "^11.1.1"
+  },
   "devDependencies": {
     "concurrently": "^8.2.2"
   }
