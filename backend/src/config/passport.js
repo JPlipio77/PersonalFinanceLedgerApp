@@ -3,6 +3,7 @@ const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
 const User = require('../models/User');
 
 const configurePassport = () => {
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(
     new GoogleStrategy(
       {
@@ -30,6 +31,7 @@ const configurePassport = () => {
       }
     )
   );
+  }
 
   passport.serializeUser((user, done) => done(null, user._id.toString()));
 
