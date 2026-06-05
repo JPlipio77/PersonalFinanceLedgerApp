@@ -11,7 +11,7 @@ CMD ["npm", "run", "dev"]
 
 # Production target — production deps only
 FROM base AS prod
-RUN npm ci --only=production
+RUN npm install --only=production --ignore-scripts
 COPY src/ ./src/
 COPY server.js .
 EXPOSE 5000
