@@ -140,6 +140,8 @@ jobs:
           INSTANCE_ID:       ${{ secrets.STAGING_INSTANCE_ID }}
           GITHUB_REPOSITORY: ${{ needs.build-and-package.outputs.image-repo }}
           GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
+          GHCR_TOKEN:        ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USER:         ${{ github.actor }}
         run: |
           BACKEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/backend:staging-${GITHUB_SHA_SHORT}"
           FRONTEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/frontend:staging-${GITHUB_SHA_SHORT}"
@@ -148,11 +150,12 @@ jobs:
           PARAMS=$(jq -cn \
             --arg b "$BACKEND_IMAGE" \
             --arg f "$FRONTEND_IMAGE" \
+            --arg t "$GHCR_TOKEN" \
+            --arg u "$GHCR_USER" \
             '{commands: [
               "#!/bin/bash",
               "set -euo pipefail",
-              "set -a && source <(tr -d '\\r' < /opt/staging/.env) && set +a",
-              "echo \"$GHCR_TOKEN\" | docker login ghcr.io -u \"$GHCR_USER\" --password-stdin",
+              ("echo " + $t + " | docker login ghcr.io -u " + $u + " --password-stdin"),
               ("docker pull " + $b),
               ("docker pull " + $f),
               "cd /opt/staging",
