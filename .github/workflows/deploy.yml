@@ -85,12 +85,7 @@ jobs:
 
       - name: Install SlimToolkit
         run: |
-          SLIM_VERSION="1.40.11"
-          curl -fsSL -o slim.tar.gz \
-            "https://github.com/slimtoolkit/slim/releases/download/${SLIM_VERSION}/dist_linux.tar.gz"
-          tar xzf slim.tar.gz
-          sudo mv dist_linux/slim /usr/local/bin/slim
-          [ -f dist_linux/slim-sensor ] && sudo mv dist_linux/slim-sensor /usr/local/bin/slim-sensor || true
+          curl -sL https://raw.githubusercontent.com/slimtoolkit/slim/master/scripts/install-slim.sh | sudo -E bash -
           slim version
 
       - name: Pull full images
@@ -194,7 +189,7 @@ jobs:
               client_payload: {
                 sha: context.sha,
                 image_tag: '${{ needs.build-push.outputs.tag }}',
-                image_base: `ghcr.io/${context.repo.owner}/${context.repo.repo}`,
+                image_base: `ghcr.io/${context.repo.owner.toLowerCase()}/${context.repo.repo.toLowerCase()}`,
                 triggered_by: context.actor,
                 source_run_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
               }
