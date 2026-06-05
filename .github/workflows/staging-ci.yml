@@ -44,8 +44,9 @@ jobs:
       packages: write
 
     outputs:
-      image-tag: ${{ steps.sha.outputs.tag }}
-      jira-id:   ${{ steps.extract-jira.outputs.jira_id }}
+      image-tag:  ${{ steps.sha.outputs.tag }}
+      image-repo: ${{ steps.sha.outputs.repo }}
+      jira-id:    ${{ steps.extract-jira.outputs.jira_id }}
 
     steps:
       - uses: actions/checkout@v4
@@ -63,9 +64,11 @@ jobs:
           echo "jira_id=${JIRA_ID}" >> "${GITHUB_OUTPUT}"
           echo "Resolved Jira ID: ${JIRA_ID}"
 
-      - name: Set short SHA tag
+      - name: Set short SHA tag and lowercase repo
         id: sha
-        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "repo=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
 
       - uses: docker/setup-buildx-action@v3
 
@@ -85,8 +88,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}/backend:staging-${{ steps.sha.outputs.tag }}
-            ghcr.io/${{ env.IMAGE_NAME }}/backend:staging-latest
+            ghcr.io/${{ steps.sha.outputs.repo }}/backend:staging-${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ steps.sha.outputs.repo }}/backend:staging-latest
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
@@ -97,8 +100,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ env.IMAGE_NAME }}/frontend:staging-${{ steps.sha.outputs.tag }}
-            ghcr.io/${{ env.IMAGE_NAME }}/frontend:staging-latest
+            ghcr.io/${{ steps.sha.outputs.repo }}/frontend:staging-${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ steps.sha.outputs.repo }}/frontend:staging-latest
 
 
 # =============================================================================
@@ -120,7 +123,7 @@ jobs:
       - name: Pull and restart containers on staging server
         uses: appleboy/ssh-action@v1.0.3
         env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY: ${{ needs.build-and-package.outputs.image-repo }}
           GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
           GITHUB_ACTOR:      ${{ github.actor }}
         with:
