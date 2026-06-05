@@ -19,46 +19,6 @@ export default function LoginPage() {
           Sign in with Google
         </button>
       </div>
-
-      {/* ── Forgot Password Modal ── */}
-      {showForgot && (
-        <div style={styles.overlay} onClick={() => setShowForgot(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>Reset Password</h3>
-
-            {forgotSent ? (
-              <>
-                <p style={styles.modalText}>
-                  If that email address is registered, we&apos;ve sent a password reset link.
-                  Please check your inbox (and spam folder).
-                </p>
-                <button style={styles.button} onClick={() => setShowForgot(false)}>Close</button>
-              </>
-            ) : (
-              <form onSubmit={handleForgotPassword}>
-                <p style={styles.modalText}>
-                  Enter your email address and we&apos;ll send you a link to reset your password.
-                </p>
-                <input
-                  style={styles.input}
-                  type="email"
-                  placeholder="Email address"
-                  value={forgotEmail}
-                  onChange={(e) => setForgotEmail(e.target.value)}
-                  required
-                  autoFocus
-                />
-                <div style={styles.modalActions}>
-                  <button type="button" style={styles.cancelBtn} onClick={() => setShowForgot(false)}>Cancel</button>
-                  <button type="submit" style={styles.button} disabled={submitting}>
-                    {submitting ? 'Sending…' : 'Send Reset Link'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
