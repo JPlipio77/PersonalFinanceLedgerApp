@@ -1,33 +1,8 @@
 const passport = require('passport');
 const { Strategy: GoogleStrategy } = require('passport-google-oauth20');
-const { Strategy: LocalStrategy } = require('passport-local');
-const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 
 const configurePassport = () => {
-  // ── Local (email + password) strategy ────────────────────────────────────
-  passport.use(
-    new LocalStrategy(
-      { usernameField: 'email' },
-      async (email, password, done) => {
-        try {
-          const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
-          if (!user || !user.password) {
-            return done(null, false, { message: 'Invalid email or password' });
-          }
-          const match = await bcrypt.compare(password, user.password);
-          if (!match) {
-            return done(null, false, { message: 'Invalid email or password' });
-          }
-          return done(null, user);
-        } catch (err) {
-          return done(err);
-        }
-      }
-    )
-  );
-
-  // ── Google OAuth strategy ─────────────────────────────────────────────────
   passport.use(
     new GoogleStrategy(
       {

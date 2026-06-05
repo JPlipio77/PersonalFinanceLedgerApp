@@ -3,7 +3,6 @@ import { useAuth } from '../context/AuthContext';
 import Spinner from '../components/common/Spinner';
 import AppLayout from '../components/common/AppLayout';
 import LoginPage from '../pages/LoginPage';
-import ResetPasswordPage from '../pages/ResetPasswordPage';
 import DashboardPage from '../pages/DashboardPage';
 import TransactionsPage from '../pages/TransactionsPage';
 import BudgetsPage from '../pages/BudgetsPage';
@@ -28,7 +27,6 @@ export default function AppRouter() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route
           element={
             <PrivateRoute>
