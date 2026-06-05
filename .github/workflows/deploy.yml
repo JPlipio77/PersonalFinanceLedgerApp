@@ -13,7 +13,8 @@ jobs:
       contents: read
       packages: write
     outputs:
-      tag: ${{ steps.sha.outputs.tag }}
+      tag:  ${{ steps.sha.outputs.tag }}
+      repo: ${{ steps.sha.outputs.repo }}
 
     steps:
       - uses: actions/checkout@v4
@@ -28,9 +29,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set short SHA tag
+      - name: Set short SHA tag and lowercase repo
         id: sha
-        run: echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "repo=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
 
       - name: Build and push backend image
         uses: docker/build-push-action@v5
@@ -41,8 +44,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ github.repository }}/backend:${{ steps.sha.outputs.tag }}
-            ghcr.io/${{ github.repository }}/backend:latest
+            ghcr.io/${{ steps.sha.outputs.repo }}/backend:${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ steps.sha.outputs.repo }}/backend:latest
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
@@ -53,8 +56,8 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           tags: |
-            ghcr.io/${{ github.repository }}/frontend:${{ steps.sha.outputs.tag }}
-            ghcr.io/${{ github.repository }}/frontend:latest
+            ghcr.io/${{ steps.sha.outputs.repo }}/frontend:${{ steps.sha.outputs.tag }}
+            ghcr.io/${{ steps.sha.outputs.repo }}/frontend:latest
 
   # ── Job 2: slim the pushed images and push slim variants ───────────────────
   slim-images:
@@ -65,11 +68,12 @@ jobs:
       contents: read
       packages: write
     env:
-      TAG: ${{ needs.build-push.outputs.tag }}
-      BACKEND_FULL:  ghcr.io/${{ github.repository }}/backend:latest
-      FRONTEND_FULL: ghcr.io/${{ github.repository }}/frontend:latest
-      BACKEND_SLIM:  ghcr.io/${{ github.repository }}/backend:slim
-      FRONTEND_SLIM: ghcr.io/${{ github.repository }}/frontend:slim
+      TAG:           ${{ needs.build-push.outputs.tag }}
+      REPO:          ${{ needs.build-push.outputs.repo }}
+      BACKEND_FULL:  ghcr.io/${{ needs.build-push.outputs.repo }}/backend:latest
+      FRONTEND_FULL: ghcr.io/${{ needs.build-push.outputs.repo }}/frontend:latest
+      BACKEND_SLIM:  ghcr.io/${{ needs.build-push.outputs.repo }}/backend:slim
+      FRONTEND_SLIM: ghcr.io/${{ needs.build-push.outputs.repo }}/frontend:slim
 
     steps:
       - name: Log in to GitHub Container Registry
@@ -115,7 +119,7 @@ jobs:
             --exec "node -e 'process.exit(0)'" \
             --exec-wait 5 \
             --tag "$BACKEND_SLIM" \
-            --tag "ghcr.io/${{ github.repository }}/backend:${{ env.TAG }}-slim" \
+            --tag "ghcr.io/${{ steps.sha.outputs.repo }}/backend:${{ env.TAG }}-slim" \
             "$BACKEND_FULL"
 
       # Frontend: nginx + static files — HTTP probe exercises all paths.
@@ -126,15 +130,15 @@ jobs:
             --http-probe-cmd "GET /" \
             --expose 80 \
             --tag "$FRONTEND_SLIM" \
-            --tag "ghcr.io/${{ github.repository }}/frontend:${{ env.TAG }}-slim" \
+            --tag "ghcr.io/${{ steps.sha.outputs.repo }}/frontend:${{ env.TAG }}-slim" \
             "$FRONTEND_FULL"
 
       - name: Push slim images
         run: |
           docker push "$BACKEND_SLIM"
-          docker push "ghcr.io/${{ github.repository }}/backend:${{ env.TAG }}-slim"
+          docker push "ghcr.io/${{ steps.sha.outputs.repo }}/backend:${{ env.TAG }}-slim"
           docker push "$FRONTEND_SLIM"
-          docker push "ghcr.io/${{ github.repository }}/frontend:${{ env.TAG }}-slim"
+          docker push "ghcr.io/${{ steps.sha.outputs.repo }}/frontend:${{ env.TAG }}-slim"
 
       - name: Record slim image sizes
         id: slim-sizes
@@ -156,8 +160,8 @@ jobs:
 
           #### Registry
           \`\`\`
-          ghcr.io/${{ github.repository }}/backend:slim
-          ghcr.io/${{ github.repository }}/frontend:slim
+          ghcr.io/${{ steps.sha.outputs.repo }}/backend:slim
+          ghcr.io/${{ steps.sha.outputs.repo }}/frontend:slim
           \`\`\`
           EOF
 

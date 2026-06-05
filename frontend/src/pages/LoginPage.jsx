@@ -19,7 +19,6 @@ export default function LoginPage() {
           Sign in with Google
         </button>
       </div>
-<<<<<<< HEAD
 
       {/* ── Forgot Password Modal ── */}
       {showForgot && (
@@ -60,8 +59,6 @@ export default function LoginPage() {
           </div>
         </div>
       )}
-=======
->>>>>>> parent of 156cd64 (Refactor: authentication flow and enhance login page)
     </div>
   );
 }

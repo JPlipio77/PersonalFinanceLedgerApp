@@ -87,7 +87,7 @@ describe('User model', () => {
       email: 'newuser@example.com',
       displayName: 'New User',
     });
-    expect(user.currency).toBe('USD');
+    expect(user.currency).toBe('PHP');
     expect(user.timezone).toBe('UTC');
     expect(user.emailAlerts).toBe(true);
     expect(user.pushAlerts).toBe(true);
