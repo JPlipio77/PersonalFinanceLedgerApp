@@ -122,41 +122,48 @@ jobs:
     steps:
       - name: Pull and restart containers on staging server
         env:
-          STAGING_HOST:      ${{ secrets.STAGING_HOST }}
-          STAGING_USER:      ${{ secrets.STAGING_USER }}
-          STAGING_SSH_KEY:   ${{ secrets.STAGING_SSH_KEY }}
           GHCR_READ_TOKEN:   ${{ secrets.GHCR_READ_TOKEN }}
           GITHUB_REPOSITORY: ${{ needs.build-and-package.outputs.image-repo }}
           GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
         run: |
-          # Write SSH key to temp file
+          # Write SSH key — use direct template substitution so GitHub inlines
+          # the key bytes before the shell processes the script (avoids env var newline corruption)
           KEY_FILE="$(mktemp)"
-          printf '%s' "$STAGING_SSH_KEY" > "$KEY_FILE"
+          cat > "$KEY_FILE" <<'__KEY__'
+          ${{ secrets.STAGING_SSH_KEY }}
+          __KEY__
+          # Strip any leading whitespace that heredoc indentation may add
+          sed -i 's/^[[:space:]]*//' "$KEY_FILE"
           chmod 600 "$KEY_FILE"
 
-          SSH="ssh -i $KEY_FILE -o StrictHostKeyChecking=no -o BatchMode=yes $STAGING_USER@$STAGING_HOST"
-
+          HOST="${{ secrets.STAGING_HOST }}"
+          USER="${{ secrets.STAGING_USER }}"
           BACKEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/backend:staging-${GITHUB_SHA_SHORT}"
           FRONTEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/frontend:staging-${GITHUB_SHA_SHORT}"
 
-          $SSH "bash -s" <<REMOTE
+          ssh -i "$KEY_FILE" \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            "${USER}@${HOST}" \
+            env BACKEND_IMAGE="$BACKEND_IMAGE" \
+                FRONTEND_IMAGE="$FRONTEND_IMAGE" \
+                GHCR_TOKEN="$GHCR_READ_TOKEN" \
+                ACTOR="${{ github.actor }}" \
+            'bash -s' <<'REMOTE'
           set -euo pipefail
-          echo "$GHCR_READ_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker pull "${BACKEND_IMAGE}"
-          docker pull "${FRONTEND_IMAGE}"
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker pull "$BACKEND_IMAGE"
+          docker pull "$FRONTEND_IMAGE"
           cd /opt/staging
-          BACKEND_IMAGE="${BACKEND_IMAGE}" FRONTEND_IMAGE="${FRONTEND_IMAGE}" \
-            docker compose -f docker-compose.staging.yml down --remove-orphans
-          BACKEND_IMAGE="${BACKEND_IMAGE}" FRONTEND_IMAGE="${FRONTEND_IMAGE}" \
-            docker compose -f docker-compose.staging.yml up -d
+          docker compose -f docker-compose.staging.yml down --remove-orphans
+          docker compose -f docker-compose.staging.yml up -d
           echo "Waiting 25s for startup..."
           sleep 25
           curl --fail --silent --show-error http://localhost:5000/health \
             || { docker compose -f docker-compose.staging.yml logs --tail 60; exit 1; }
-          echo "Deployment healthy: ${BACKEND_IMAGE}"
+          echo "Deployment healthy: $BACKEND_IMAGE"
           REMOTE
 
-          # Clean up key
           rm -f "$KEY_FILE"
 
 
