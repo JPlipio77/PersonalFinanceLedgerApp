@@ -151,7 +151,7 @@ jobs:
             '{commands: [
               "#!/bin/bash",
               "set -euo pipefail",
-              "set -a && source /opt/staging/.env && set +a",
+              "set -a && source <(tr -d '\\r' < /opt/staging/.env) && set +a",
               "echo \"$GHCR_TOKEN\" | docker login ghcr.io -u \"$GHCR_USER\" --password-stdin",
               ("docker pull " + $b),
               ("docker pull " + $f),
