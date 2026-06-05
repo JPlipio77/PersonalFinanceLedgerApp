@@ -137,14 +137,14 @@ jobs:
 
       - name: Deploy via SSM Run Command (no SSH key required)
         env:
-          INSTANCE_ID:       ${{ secrets.STAGING_INSTANCE_ID }}
-          GITHUB_REPOSITORY: ${{ needs.build-and-package.outputs.image-repo }}
-          GITHUB_SHA_SHORT:  ${{ needs.build-and-package.outputs.image-tag }}
-          GHCR_TOKEN:        ${{ secrets.GHCR_READ_TOKEN }}
-          GHCR_USER:         ${{ github.actor }}
+          INSTANCE_ID:  ${{ secrets.STAGING_INSTANCE_ID }}
+          IMAGE_REPO:   ${{ needs.build-and-package.outputs.image-repo }}
+          IMAGE_TAG:    ${{ needs.build-and-package.outputs.image-tag }}
+          GHCR_TOKEN:   ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USER:    ${{ github.actor }}
         run: |
-          BACKEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/backend:staging-${GITHUB_SHA_SHORT}"
-          FRONTEND_IMAGE="ghcr.io/${GITHUB_REPOSITORY}/frontend:staging-${GITHUB_SHA_SHORT}"
+          BACKEND_IMAGE="ghcr.io/${IMAGE_REPO}/backend:staging-${IMAGE_TAG}"
+          FRONTEND_IMAGE="ghcr.io/${IMAGE_REPO}/frontend:staging-${IMAGE_TAG}"
 
           # Build SSM parameter JSON with jq — handles all escaping safely
           PARAMS=$(jq -cn \
@@ -171,7 +171,7 @@ jobs:
           CMD_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --comment "staging-${GITHUB_SHA_SHORT}" \
+            --comment "staging-${IMAGE_TAG}" \
             --parameters "$PARAMS" \
             --output text --query 'Command.CommandId')
 
