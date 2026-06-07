@@ -80,6 +80,174 @@ describe('GET /api/auth/google', () => {
   });
 });
 
+describe('POST /api/auth/register', () => {
+  it('creates a new local user and returns 201', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'newuser@test.com',
+      password: 'StrongPass1!',
+      confirmPassword: 'StrongPass1!',
+      birthday: '1990-01-01',
+      country: 'Philippines',
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.email).toBe('newuser@test.com');
+    expect(res.body.data.password).toBeUndefined();
+    expect(res.body.data.authProvider).toBe('local');
+  });
+
+  it('returns 409 for duplicate email', async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'dup@test.com', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
+    });
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'dup@test.com', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('returns 400 when passwords do not match', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'mismatch@test.com', password: 'StrongPass1!', confirmPassword: 'Different1!',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when password is too short', async () => {
+    const res = await request(app).post('/api/auth/register').send({
+      email: 'short@test.com', password: 'abc', confirmPassword: 'abc',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when required fields are missing', async () => {
+    const res = await request(app).post('/api/auth/register').send({ email: 'no-pass@test.com' });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/auth/login', () => {
+  beforeEach(async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'loginuser@test.com',
+      password: 'StrongPass1!',
+      confirmPassword: 'StrongPass1!',
+    });
+  });
+
+  it('returns 200 with valid credentials', async () => {
+    const agent = request.agent(app);
+    const res = await agent.post('/api/auth/login').send({
+      email: 'loginuser@test.com', password: 'StrongPass1!',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.email).toBe('loginuser@test.com');
+    expect(res.body.data.password).toBeUndefined();
+  });
+
+  it('returns 401 with wrong password', async () => {
+    const res = await request(app).post('/api/auth/login').send({
+      email: 'loginuser@test.com', password: 'wrongpassword',
+    });
+    expect(res.status).toBe(401);
+    expect(res.body.success).toBe(false);
+  });
+
+  it('returns 401 with non-existent email', async () => {
+    const res = await request(app).post('/api/auth/login').send({
+      email: 'nobody@test.com', password: 'StrongPass1!',
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it('establishes a session after login', async () => {
+    const agent = request.agent(app);
+    await agent.post('/api/auth/login').send({ email: 'loginuser@test.com', password: 'StrongPass1!' });
+    const me = await agent.get('/api/auth/me');
+    expect(me.status).toBe(200);
+    expect(me.body.data.email).toBe('loginuser@test.com');
+  });
+});
+
+describe('POST /api/auth/forgot-password', () => {
+  beforeEach(async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'forgot@test.com', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
+    });
+  });
+
+  it('returns 200 for existing local user and exposes _devToken in test env', async () => {
+    const res = await request(app).post('/api/auth/forgot-password').send({ email: 'forgot@test.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data._devToken).toBeDefined();
+  });
+
+  it('returns 200 even for non-existent email (no enumeration)', async () => {
+    const res = await request(app).post('/api/auth/forgot-password').send({ email: 'ghost@test.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('returns 400 when email is missing', async () => {
+    const res = await request(app).post('/api/auth/forgot-password').send({});
+    expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/auth/reset-password/:token', () => {
+  let resetToken;
+
+  beforeEach(async () => {
+    await request(app).post('/api/auth/register').send({
+      email: 'reset@test.com', password: 'OldPass1!', confirmPassword: 'OldPass1!',
+    });
+    const forgot = await request(app).post('/api/auth/forgot-password').send({ email: 'reset@test.com' });
+    resetToken = forgot.body.data._devToken;
+  });
+
+  it('resets the password with a valid token', async () => {
+    const res = await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({ password: 'NewPass2!', confirmPassword: 'NewPass2!' });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+  });
+
+  it('allows login with the new password after reset', async () => {
+    await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({ password: 'NewPass2!', confirmPassword: 'NewPass2!' });
+
+    const agent = request.agent(app);
+    const res = await agent.post('/api/auth/login').send({ email: 'reset@test.com', password: 'NewPass2!' });
+    expect(res.status).toBe(200);
+  });
+
+  it('returns 400 for an invalid token', async () => {
+    const res = await request(app)
+      .post('/api/auth/reset-password/invalidtoken')
+      .send({ password: 'NewPass2!', confirmPassword: 'NewPass2!' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when passwords do not match', async () => {
+    const res = await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({ password: 'NewPass2!', confirmPassword: 'DifferentPass!' });
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 when new password is too short', async () => {
+    const res = await request(app)
+      .post(`/api/auth/reset-password/${resetToken}`)
+      .send({ password: 'short', confirmPassword: 'short' });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe('User model', () => {
   it('creates a user with default currency and timezone', async () => {
     const user = await User.create({
