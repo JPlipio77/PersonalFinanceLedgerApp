@@ -74,4 +74,34 @@ const sendBudgetAlert = async ({ user, category, budget, spent }) => {
   }
 };
 
-module.exports = { sendBudgetAlert, budgetAlertTemplate };
+const sendPasswordReset = async (user, resetUrl) => {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+    logger.warn('Password reset email skipped: SMTP not configured');
+    return;
+  }
+  try {
+    const transporter = createTransporter();
+    await transporter.sendMail({
+      from: process.env.EMAIL_FROM || `"Finance Ledger" <${process.env.SMTP_USER}>`,
+      to: user.email,
+      subject: 'Reset your Finance Ledger password',
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:auto">
+          <h2 style="color:#3b82f6">Finance Ledger — Password Reset</h2>
+          <p>Hi <strong>${user.displayName}</strong>,</p>
+          <p>We received a request to reset your password. Click the button below. This link expires in 1 hour.</p>
+          <div style="margin:24px 0;text-align:center">
+            <a href="${resetUrl}" style="background:#3b82f6;color:#fff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;display:inline-block">Reset Password</a>
+          </div>
+          <p>If you didn't request this, ignore this email.</p>
+          <p style="color:#6b7280;font-size:12px">Link: <a href="${resetUrl}">${resetUrl}</a></p>
+        </div>
+      `,
+    });
+    logger.info(`Password reset email sent to ${user.email}`);
+  } catch (err) {
+    logger.error('Failed to send password reset email', { message: err.message });
+  }
+};
+
+module.exports = { sendBudgetAlert, budgetAlertTemplate, sendPasswordReset };
