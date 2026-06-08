@@ -224,6 +224,9 @@ jobs:
         working-directory: qa-automation-manifest
         run: npx playwright install --with-deps chromium
 
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
       - name: Run targeted test suite
         working-directory: qa-automation-manifest
         env:
@@ -247,6 +250,14 @@ jobs:
         with:
           name: playwright-report-${{ github.sha }}
           path: qa-automation-manifest/reports/playwright/
+          if-no-files-found: warn
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-report-${{ github.sha }}
+          path: qa-automation-manifest/reports/k6/
           if-no-files-found: warn
 
 
