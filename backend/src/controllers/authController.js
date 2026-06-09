@@ -16,11 +16,16 @@ const sanitize = (user) => {
   return u;
 };
 
-const register = asyncHandler(async (req, res) => {
-  const { email, password, confirmPassword, birthday, country } = req.body;
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
 
-  if (!email || !password || !confirmPassword) {
-    return error(res, 'Email, password, and confirm password are required', 400);
+const register = asyncHandler(async (req, res) => {
+  const { email, username, password, confirmPassword, birthday, country } = req.body;
+
+  if (!email || !username || !password || !confirmPassword) {
+    return error(res, 'Email, username, password, and confirm password are required', 400);
+  }
+  if (!USERNAME_RE.test(username.toLowerCase())) {
+    return error(res, 'Username must be 3–20 characters and contain only letters, numbers, or underscores', 400);
   }
   if (password !== confirmPassword) {
     return error(res, 'Passwords do not match', 400);
@@ -29,15 +34,19 @@ const register = asyncHandler(async (req, res) => {
     return error(res, 'Password must be at least 8 characters', 400);
   }
 
-  const existing = await User.findOne({ email: email.toLowerCase() });
-  if (existing) return error(res, 'Email already registered', 409);
+  const [emailTaken, usernameTaken] = await Promise.all([
+    User.findOne({ email: email.toLowerCase() }),
+    User.findOne({ username: username.toLowerCase() }),
+  ]);
+  if (emailTaken) return error(res, 'Email already registered', 409);
+  if (usernameTaken) return error(res, 'Username already taken', 409);
 
   const hashed = await bcrypt.hash(password, 12);
-  const displayName = email.split('@')[0];
 
   const user = await User.create({
     email,
-    displayName,
+    username: username.toLowerCase(),
+    displayName: username,
     password: hashed,
     birthday: birthday || undefined,
     country: country || undefined,

@@ -6,7 +6,7 @@ module.exports = async () => {
   // Windows MongoDB startup can be slow; give it 60 seconds
   mongod = await MongoMemoryServer.create({
     instance: {
-      startupTimeoutMS: 60000,
+      launchTimeout: 60000,
     },
   });
 

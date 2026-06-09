@@ -5,11 +5,15 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 
 const configurePassport = () => {
-  // Local strategy — email + password
+  // Local strategy — email or username + password
   passport.use(
-    new LocalStrategy({ usernameField: 'email' }, async (email, password, done) => {
+    new LocalStrategy({ usernameField: 'identifier' }, async (identifier, password, done) => {
       try {
-        const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
+        const normalized = identifier.toLowerCase().trim();
+        const query = normalized.includes('@')
+          ? { email: normalized }
+          : { username: normalized };
+        const user = await User.findOne(query).select('+password');
         if (!user || user.authProvider !== 'local' || !user.password) {
           return done(null, false, { message: 'Invalid credentials' });
         }

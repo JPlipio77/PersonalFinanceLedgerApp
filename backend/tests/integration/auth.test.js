@@ -84,6 +84,7 @@ describe('POST /api/auth/register', () => {
   it('creates a new local user and returns 201', async () => {
     const res = await request(app).post('/api/auth/register').send({
       email: 'newuser@test.com',
+      username: 'newuser',
       password: 'StrongPass1!',
       confirmPassword: 'StrongPass1!',
       birthday: '1990-01-01',
@@ -98,10 +99,10 @@ describe('POST /api/auth/register', () => {
 
   it('returns 409 for duplicate email', async () => {
     await request(app).post('/api/auth/register').send({
-      email: 'dup@test.com', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
+      email: 'dup@test.com', username: 'dupuser1', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
     });
     const res = await request(app).post('/api/auth/register').send({
-      email: 'dup@test.com', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
+      email: 'dup@test.com', username: 'dupuser2', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
     });
     expect(res.status).toBe(409);
     expect(res.body.success).toBe(false);
@@ -109,14 +110,14 @@ describe('POST /api/auth/register', () => {
 
   it('returns 400 when passwords do not match', async () => {
     const res = await request(app).post('/api/auth/register').send({
-      email: 'mismatch@test.com', password: 'StrongPass1!', confirmPassword: 'Different1!',
+      email: 'mismatch@test.com', username: 'mismatch', password: 'StrongPass1!', confirmPassword: 'Different1!',
     });
     expect(res.status).toBe(400);
   });
 
   it('returns 400 when password is too short', async () => {
     const res = await request(app).post('/api/auth/register').send({
-      email: 'short@test.com', password: 'abc', confirmPassword: 'abc',
+      email: 'short@test.com', username: 'shortpw', password: 'abc', confirmPassword: 'abc',
     });
     expect(res.status).toBe(400);
   });
@@ -131,15 +132,16 @@ describe('POST /api/auth/login', () => {
   beforeEach(async () => {
     await request(app).post('/api/auth/register').send({
       email: 'loginuser@test.com',
+      username: 'loginuser',
       password: 'StrongPass1!',
       confirmPassword: 'StrongPass1!',
     });
   });
 
-  it('returns 200 with valid credentials', async () => {
+  it('returns 200 with valid credentials (email)', async () => {
     const agent = request.agent(app);
     const res = await agent.post('/api/auth/login').send({
-      email: 'loginuser@test.com', password: 'StrongPass1!',
+      identifier: 'loginuser@test.com', password: 'StrongPass1!',
     });
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
@@ -147,24 +149,33 @@ describe('POST /api/auth/login', () => {
     expect(res.body.data.password).toBeUndefined();
   });
 
+  it('returns 200 with valid credentials (username)', async () => {
+    const agent = request.agent(app);
+    const res = await agent.post('/api/auth/login').send({
+      identifier: 'loginuser', password: 'StrongPass1!',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.email).toBe('loginuser@test.com');
+  });
+
   it('returns 401 with wrong password', async () => {
     const res = await request(app).post('/api/auth/login').send({
-      email: 'loginuser@test.com', password: 'wrongpassword',
+      identifier: 'loginuser@test.com', password: 'wrongpassword',
     });
     expect(res.status).toBe(401);
     expect(res.body.success).toBe(false);
   });
 
-  it('returns 401 with non-existent email', async () => {
+  it('returns 401 with non-existent identifier', async () => {
     const res = await request(app).post('/api/auth/login').send({
-      email: 'nobody@test.com', password: 'StrongPass1!',
+      identifier: 'nobody@test.com', password: 'StrongPass1!',
     });
     expect(res.status).toBe(401);
   });
 
   it('establishes a session after login', async () => {
     const agent = request.agent(app);
-    await agent.post('/api/auth/login').send({ email: 'loginuser@test.com', password: 'StrongPass1!' });
+    await agent.post('/api/auth/login').send({ identifier: 'loginuser@test.com', password: 'StrongPass1!' });
     const me = await agent.get('/api/auth/me');
     expect(me.status).toBe(200);
     expect(me.body.data.email).toBe('loginuser@test.com');
@@ -174,7 +185,7 @@ describe('POST /api/auth/login', () => {
 describe('POST /api/auth/forgot-password', () => {
   beforeEach(async () => {
     await request(app).post('/api/auth/register').send({
-      email: 'forgot@test.com', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
+      email: 'forgot@test.com', username: 'forgotuser', password: 'StrongPass1!', confirmPassword: 'StrongPass1!',
     });
   });
 
@@ -202,7 +213,7 @@ describe('POST /api/auth/reset-password/:token', () => {
 
   beforeEach(async () => {
     await request(app).post('/api/auth/register').send({
-      email: 'reset@test.com', password: 'OldPass1!', confirmPassword: 'OldPass1!',
+      email: 'reset@test.com', username: 'resetuser', password: 'OldPass1!', confirmPassword: 'OldPass1!',
     });
     const forgot = await request(app).post('/api/auth/forgot-password').send({ email: 'reset@test.com' });
     resetToken = forgot.body.data._devToken;
@@ -222,7 +233,7 @@ describe('POST /api/auth/reset-password/:token', () => {
       .send({ password: 'NewPass2!', confirmPassword: 'NewPass2!' });
 
     const agent = request.agent(app);
-    const res = await agent.post('/api/auth/login').send({ email: 'reset@test.com', password: 'NewPass2!' });
+    const res = await agent.post('/api/auth/login').send({ identifier: 'reset@test.com', password: 'NewPass2!' });
     expect(res.status).toBe(200);
   });
 
