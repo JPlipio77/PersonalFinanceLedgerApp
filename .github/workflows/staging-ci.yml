@@ -210,7 +210,7 @@ jobs:
         run: |
           mkdir -p tests/reports/newman
           newman run tests/postman/auth-flows.collection.json \
-            --env-var "baseUrl=${STAGING_URL}/api" \
+            --global-var "baseUrl=${STAGING_URL}/api" \
             --reporters cli,htmlextra \
             --reporter-htmlextra-export tests/reports/newman/auth-flows.html \
             --bail
