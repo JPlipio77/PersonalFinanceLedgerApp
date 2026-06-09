@@ -13,7 +13,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: [
     ['list'],
-    ['html', { outputFolder: '../reports/playwright', open: 'never' }],
+    ['html', { outputFolder: 'tests/reports/playwright', open: 'never' }],
   ],
   use: {
     baseURL:      process.env.APP_URL || derivedAppUrl,
