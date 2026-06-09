@@ -419,26 +419,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "// Seed a user first, then attempt duplicate in the test script",
-                  "const ts = Date.now();",
-                  "const email = `dup_${ts}@example.com`;",
-                  "pm.collectionVariables.set('dupEmail', email);",
-                  "pm.collectionVariables.set('dupUsername', `dup${ts}`);",
-                  "",
-                  "pm.sendRequest({",
-                  "  url: pm.collectionVariables.get('baseUrl') + '/auth/register',",
-                  "  method: 'POST',",
-                  "  header: { 'Content-Type': 'application/json' },",
-                  "  body: {",
-                  "    mode: 'raw',",
-                  "    raw: JSON.stringify({",
-                  "      email,",
-                  "      username: `dup${ts}`,",
-                  "      password: 'TestPass123!',",
-                  "      confirmPassword: 'TestPass123!'",
-                  "    })",
-                  "  }",
-                  "}, (err, res) => {});"
+                  "// {{testEmail}} was registered in Happy Path — reuse it to force 409.",
+                  "pm.collectionVariables.set('dupUsername', `dup${Date.now()}`);"
                 ]
               }
             },
@@ -457,7 +439,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"email\":           \"{{dupEmail}}\",\n  \"username\":        \"{{dupUsername}}2\",\n  \"password\":        \"TestPass123!\",\n  \"confirmPassword\": \"TestPass123!\"\n}",
+              "raw": "{\n  \"email\":           \"{{testEmail}}\",\n  \"username\":        \"{{dupUsername}}\",\n  \"password\":        \"TestPass123!\",\n  \"confirmPassword\": \"TestPass123!\"\n}",
               "options": { "raw": { "language": "json" } }
             },
             "url": {
