@@ -50,7 +50,11 @@ describe('Navbar', () => {
         </AuthContext.Provider>
       </ThemeContext.Provider>
     );
+    // First click opens the confirmation modal
     fireEvent.click(screen.getByText('Logout'));
+    // Confirm logout in the modal (second 'Logout' button)
+    const logoutBtns = screen.getAllByText('Logout');
+    fireEvent.click(logoutBtns[logoutBtns.length - 1]);
     expect(logoutMock).toHaveBeenCalledTimes(1);
   });
 

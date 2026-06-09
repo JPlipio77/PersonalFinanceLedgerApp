@@ -1,7 +1,7 @@
 import axiosInstance from './axiosInstance';
 
-export const login = (email, password) =>
-  axiosInstance.post('/auth/login', { email, password }).then((r) => r.data);
+export const login = (identifier, password) =>
+  axiosInstance.post('/auth/login', { identifier, password }).then((r) => r.data);
 
 export const register = (data) =>
   axiosInstance.post('/auth/register', data).then((r) => r.data);
