@@ -500,14 +500,14 @@ staging-build:
     DOCKER_BUILDKIT:    "1"
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")'
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
   script:
     # ── Jira ID extraction (identical regex to staging-ci.yml) ─────────────────
     - |
       COMMIT_MSG="$(git log -1 --pretty=%s)"
       echo "Commit subject: ${COMMIT_MSG}"
-      JIRA_ID="$(echo "${COMMIT_MSG}" | grep -oP '[A-Z]+-\d+' | head -1 || true)"
+      JIRA_ID="$(echo "${COMMIT_MSG}" | grep -oE '[A-Z]+-[0-9]+' | head -1 || true)"
       [ -z "${JIRA_ID}" ] && JIRA_ID="FALLBACK"
       echo "Resolved Jira ID: ${JIRA_ID}"
       echo "JIRA_ID=${JIRA_ID}" >> staging.env
