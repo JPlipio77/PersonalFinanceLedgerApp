@@ -1,0 +1,229 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, '**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ── Backend: Unit + Component run in parallel ──────────────────────────────
+  unit-tests:
+    name: Backend — Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run unit tests
+        env:
+          NODE_ENV: test
+          MONGOMS_VERSION: '7.0.14'
+          MONGOMS_DOWNLOAD_TIMEOUT: '120000'
+        run: npm run test:unit -- --json --outputFile=../unit-results.json
+
+      - name: Write job summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            let data;
+            try {
+              data = JSON.parse(fs.readFileSync('unit-results.json', 'utf8'));
+            } catch {
+              core.summary.addHeading('Unit Tests — results unavailable').write();
+              return;
+            }
+            const failed = data.numFailedTests || 0;
+            const passed = data.numPassedTests || 0;
+            const total  = data.numTotalTests  || 0;
+            const pct    = total > 0 ? Math.round((passed / total) * 100) : 0;
+            const icon   = failed === 0 ? '✅' : '❌';
+            const rows   = (data.testResults || []).flatMap(suite =>
+              (suite.testResults || []).map(t => [
+                path.basename(suite.testFilePath || ''),
+                t.fullName || '',
+                t.status === 'passed' ? '✅ PASS' : t.status === 'failed' ? '❌ FAIL' : '⏭ SKIP',
+                t.duration ? `${t.duration}ms` : '—',
+              ])
+            );
+            await core.summary
+              .addHeading(`${icon} Unit Tests — ${failed === 0 ? 'PASSED' : 'FAILED'}`)
+              .addTable([
+                [
+                  { data: 'Suite',    header: true },
+                  { data: 'Test',     header: true },
+                  { data: 'Result',   header: true },
+                  { data: 'Duration', header: true },
+                ],
+                ...rows,
+              ])
+              .addRaw(`\n**Total:** ${total} | **Passed:** ${passed} | **Failed:** ${failed} | **Pass Rate:** ${pct}%\n`)
+              .write();
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-results
+          path: unit-results.json
+
+  component-tests:
+    name: Backend — Component Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - run: npm ci
+
+      - name: Run component tests
+        env:
+          NODE_ENV: test
+          MONGOMS_VERSION: '7.0.14'
+          MONGOMS_DOWNLOAD_TIMEOUT: '120000'
+        run: npm run test:component -- --json --outputFile=../component-results.json
+
+      - name: Write job summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            let data;
+            try {
+              data = JSON.parse(fs.readFileSync('component-results.json', 'utf8'));
+            } catch {
+              core.summary.addHeading('Component Tests — results unavailable').write();
+              return;
+            }
+            const failed = data.numFailedTests || 0;
+            const passed = data.numPassedTests || 0;
+            const total  = data.numTotalTests  || 0;
+            const pct    = total > 0 ? Math.round((passed / total) * 100) : 0;
+            const icon   = failed === 0 ? '✅' : '❌';
+            const rows   = (data.testResults || []).flatMap(suite =>
+              (suite.testResults || []).map(t => [
+                path.basename(suite.testFilePath || ''),
+                t.fullName || '',
+                t.status === 'passed' ? '✅ PASS' : t.status === 'failed' ? '❌ FAIL' : '⏭ SKIP',
+                t.duration ? `${t.duration}ms` : '—',
+              ])
+            );
+            await core.summary
+              .addHeading(`${icon} Component Tests — ${failed === 0 ? 'PASSED' : 'FAILED'}`)
+              .addTable([
+                [
+                  { data: 'Suite',    header: true },
+                  { data: 'Test',     header: true },
+                  { data: 'Result',   header: true },
+                  { data: 'Duration', header: true },
+                ],
+                ...rows,
+              ])
+              .addRaw(`\n**Total:** ${total} | **Passed:** ${passed} | **Failed:** ${failed} | **Pass Rate:** ${pct}%\n`)
+              .write();
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: component-results
+          path: component-results.json
+
+      # Run full suite for coverage after component tests pass
+      - name: Run full test coverage
+        env:
+          NODE_ENV: test
+          MONGOMS_VERSION: '7.0.14'
+          MONGOMS_DOWNLOAD_TIMEOUT: '120000'
+        run: npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: backend/coverage
+          flags: backend
+          fail_ci_if_error: false
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend-tests:
+    name: Frontend — Lint & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: frontend/coverage
+          flags: frontend
+          fail_ci_if_error: false
+
+  # ── Docker build smoke test ────────────────────────────────────────────────
+  docker-build-check:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    needs: [unit-tests, component-tests, frontend-tests]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create backend .env
+        run: |
+          cp backend/.env.example backend/.env
+          echo "SESSION_SECRET=$(openssl rand -hex 32)" >> backend/.env
+          echo "MONGODB_URI=mongodb://mongo:27017/finance_ledger" >> backend/.env
+
+      - name: Create frontend .env
+        run: |
+          cp frontend/.env.example frontend/.env
+          echo "VITE_API_BASE_URL=http://localhost:5000/api" >> frontend/.env
+
+      - name: Build Docker images (dev targets)
+        run: docker compose build

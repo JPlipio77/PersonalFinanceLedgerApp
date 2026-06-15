@@ -1,93 +1,322 @@
-# Personal-Finance-Ledger
+# Personal Finance Ledger
 
+A full-stack personal finance tracking application built with Node.js, Express, React, and MongoDB.
 
+## Features
 
-## Getting started
+- **Ledger** — record income and expense transactions with date, amount, description, and category
+- **Categories** — 14 predefined system categories + create your own custom ones
+- **Budgets** — set monthly spending limits per category with real-time progress tracking
+- **Alerts** — email + browser push notifications when spending exceeds configurable thresholds (default 80%)
+- **Google OAuth** — secure login via Google account (no passwords stored)
+- **Dashboard** — live charts: spending by category (bar), budget vs actual (donut), monthly trends (line)
+- **Recurring transactions** — auto-post subscriptions, rent, salary on daily/weekly/monthly/yearly schedules
+- **Multi-currency** — track amounts in any currency, normalized to USD via Open Exchange Rates
+- **Export** — download transactions as CSV or Excel (XLSX)
+- **Reports** — monthly and yearly summaries with income/expense charts and budget status
+- **Dark mode** — toggle between light and dark themes, persisted in localStorage
+- **Notifications** — in-app notification bell with unread badge and mark-all-read
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## Tech Stack
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+| Layer      | Technology                                    |
+|------------|-----------------------------------------------|
+| Backend    | Node.js 20 + Express 4                        |
+| Frontend   | React 18 + Vite 5                             |
+| Database   | MongoDB 7 + Mongoose 8                        |
+| Auth       | Google OAuth 2.0 via Passport.js + sessions   |
+| Email      | Nodemailer (SMTP / Gmail)                     |
+| Push       | web-push (VAPID) + Service Worker             |
+| Charts     | Recharts                                      |
+| Scheduler  | node-cron (recurring transactions, monthly reset) |
+| Testing    | Jest 29 + Supertest (backend), Jest + RTL (frontend) |
+| DevOps     | Docker + docker-compose + GitHub Actions CI/CD |
 
-## Add your files
+---
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Prerequisites
+
+- [Node.js 20+](https://nodejs.org/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- A Google Cloud project with OAuth 2.0 credentials ([setup guide](https://developers.google.com/identity/protocols/oauth2))
+- (Optional) [Open Exchange Rates](https://openexchangerates.org/) API key for live multi-currency rates
+
+---
+
+## Quick Start (Docker — Recommended)
+
+```bash
+# 1. Clone the repo
+git clone <repo-url>
+cd PersonalFinanceLedgerApp
+
+# 2. Create environment files
+cp .env.example backend/.env
+cp .env.example frontend/.env
+# Edit backend/.env — fill in GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET
+
+# 3. Start all services (MongoDB + backend + frontend)
+docker-compose up --build
+
+# 4. Open the app
+open http://localhost:3000
+```
+
+> **First run tip:** MongoDB starts first (health-checked), then backend seeds 14 system categories automatically.
+
+---
+
+## Local Development (without Docker)
+
+```bash
+# Install all dependencies
+cd backend && npm install
+cd ../frontend && npm install
+
+# Backend (terminal 1)
+cd backend
+cp ../.env.example .env   # fill in required vars
+npm run dev               # nodemon — http://localhost:5000
+
+# Frontend (terminal 2)
+cd frontend
+cp ../.env.example .env
+npm run dev               # Vite HMR — http://localhost:3000
+```
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `MONGODB_URI` | Yes | MongoDB connection string |
+| `SESSION_SECRET` | Yes | Long random string for session signing |
+| `GOOGLE_CLIENT_ID` | Yes | From Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | Yes | From Google Cloud Console |
+| `GOOGLE_CALLBACK_URL` | Yes | OAuth redirect URI (must match Google Console) |
+| `FRONTEND_URL` | Yes | Frontend origin for CORS + OAuth redirect |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASS` | For email alerts | Any SMTP provider |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | For push alerts | See below |
+| `OXR_APP_ID` | For live rates | [openexchangerates.org](https://openexchangerates.org) free tier |
+| `VITE_API_BASE_URL` | Yes (frontend) | Backend API base URL |
+| `VITE_VAPID_PUBLIC_KEY` | For push alerts | Same as `VAPID_PUBLIC_KEY` |
+
+### Generate VAPID Keys
+
+```bash
+npx web-push generate-vapid-keys
+# Copy the output into backend/.env and frontend/.env
+```
+
+---
+
+## Running Tests
+
+```bash
+# Backend — unit + integration tests
+cd backend && npm test
+
+# Backend — with coverage report (enforces ≥80% threshold)
+cd backend && npm run test:coverage
+
+# Frontend — component + page tests
+cd frontend && npm test
+
+# Watch mode (backend)
+cd backend && npm run test:watch
+```
+
+Coverage reports are written to:
+- `backend/coverage/` — HTML + lcov
+- `frontend/coverage/` — HTML + lcov
+
+**Coverage thresholds enforced in CI:** ≥ 80% lines, functions, and branches (backend).
+
+### Test counts (Phase 7)
+
+| Suite | Tests |
+|---|---|
+| Backend unit (services, middleware, jobs, utils) | 28 |
+| Backend integration (all API endpoints) | 133 |
+| Frontend (pages + components) | 37 |
+| **Total** | **198** |
+
+---
+
+## API Reference
+
+All API endpoints are prefixed with `/api`. No-auth health check at `GET /health`.
+
+### Auth `/api/auth`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/google` | Initiate Google OAuth |
+| GET | `/google/callback` | OAuth callback |
+| POST | `/logout` | Log out |
+| GET | `/me` | Current user profile |
+| PUT | `/me` | Update preferences (currency, emailAlerts) |
+
+### Transactions `/api/transactions`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | List — pagination + 5 filters (type, category, dateRange, search) |
+| POST | `/` | Create — triggers async budget alert check |
+| GET | `/export` | Download CSV or XLSX (`?format=csv\|xlsx`) |
+| GET | `/:id` | Get one |
+| PUT | `/:id` | Update |
+| DELETE | `/:id` | Soft delete |
+| POST | `/:id/restore` | Restore soft-deleted |
+
+### Budgets `/api/budgets`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/` | List for month (`?month=&year=`) |
+| POST | `/` | Create / upsert |
+| GET | `/summary` | All-category totals |
+| GET | `/:id` | Single budget with spending enrichment |
+| PUT | `/:id` | Update limit or threshold |
+| DELETE | `/:id` | Delete |
+
+### Recurring `/api/recurring`
+Full CRUD for recurring transaction rules (daily/weekly/monthly/yearly).
+
+### Reports `/api/reports`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/monthly` | Full monthly summary (`?month=&year=`) |
+| GET | `/yearly` | Full yearly summary (`?year=`) |
+
+### Dashboard `/api/dashboard`
+| Method | Path | Description |
+|---|---|---|
+| GET | `/overview` | Income, expense, net, budget adherence rate |
+| GET | `/recent-transactions` | Last N transactions |
+| GET | `/spending-by-category` | Category totals for current month |
+| GET | `/trend` | Monthly income/expense for last N months |
+
+---
+
+## Docker Commands
+
+```bash
+# Start full stack (dev — with hot reload)
+docker-compose up --build
+
+# Start only MongoDB (run services locally)
+docker-compose up mongo
+
+# Production build (nginx + optimised images)
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up --build
+
+# Tear down (keep volumes)
+docker-compose down
+
+# Tear down and wipe DB
+docker-compose down -v
+```
+
+---
+
+## Project Structure
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/jlipio77/personal-finance-ledger.git
-git branch -M main
-git push -uf origin main
+PersonalFinanceLedgerApp/
+├── .github/workflows/
+│   ├── ci.yml          # lint + test (coverage) + docker build on every push
+│   └── deploy.yml      # build + push to GHCR on main
+├── backend/
+│   ├── src/
+│   │   ├── config/     # db.js, passport.js, webpush.js
+│   │   ├── controllers/# auth, transactions, categories, budgets,
+│   │   │               # notifications, dashboard, recurring, reports
+│   │   ├── jobs/       # recurringTransactions.js (node-cron)
+│   │   ├── middleware/  # authMiddleware, errorHandler, rateLimiter, validateRequest
+│   │   ├── models/     # User, Transaction, Category, Budget, Notification, RecurringRule
+│   │   ├── routes/     # one file per resource
+│   │   ├── services/   # alertService, emailService, pushService, currencyService, exportService
+│   │   └── utils/      # asyncHandler, apiResponse, logger, seedCategories
+│   ├── tests/
+│   │   ├── integration/# full HTTP round-trips against in-memory MongoDB
+│   │   ├── unit/       # services, middleware, jobs, utils in isolation
+│   │   └── helpers/    # authHelper, dbHelper
+│   ├── jest.config.js  # coverage thresholds ≥80%
+│   └── Dockerfile      # dev + prod multi-stage
+├── frontend/
+│   ├── public/
+│   │   └── sw.js       # Service Worker for push notifications
+│   ├── src/
+│   │   ├── api/        # axiosInstance + per-resource API modules
+│   │   ├── components/ # Navbar, Sidebar, charts, notifications, common
+│   │   ├── context/    # AuthContext, ThemeContext
+│   │   ├── hooks/      # useTransactions, useBudgets, useCategories, useRecurring, etc.
+│   │   ├── pages/      # Login, Dashboard, Transactions, Budgets,
+│   │   │               # Categories, Reports, Settings
+│   │   ├── router/     # AppRouter with PrivateRoute guard
+│   │   ├── styles/     # globals.css, theme.css (light/dark CSS variables)
+│   │   └── utils/      # formatCurrency, formatDate
+│   ├── tests/
+│   │   ├── components/ # Navbar, TransactionForm, BudgetCard
+│   │   └── pages/      # Login, Dashboard, Reports, Settings
+│   ├── jest.config.js
+│   ├── vite.config.js
+│   └── Dockerfile      # dev + build + prod (nginx) multi-stage
+├── docker-compose.yml
+├── docker-compose.prod.yml
+├── nginx.conf          # SPA fallback + /api proxy + static caching
+└── .env.example
 ```
 
-## Integrate with your tools
+---
 
-* [Set up project integrations](https://gitlab.com/jlipio77/personal-finance-ledger/-/settings/integrations)
+## CI/CD
 
-## Collaborate with your team
+### `ci.yml` — triggers on every push / PR
+1. **backend-test** — `npm ci` → lint → `npm run test:coverage` (enforces ≥80% branches)
+2. **frontend-test** — `npm ci` → lint → `npm run test:coverage`
+3. **docker-build-check** — `docker compose build` smoke test (needs both test jobs)
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### `deploy.yml` — triggers on push to `main`
+1. Builds backend and frontend Docker images (prod targets) with layer caching
+2. Pushes to GitHub Container Registry (`ghcr.io/<org>/<repo>/backend:latest` + SHA tag)
+3. Optionally triggers a staging deploy via `DEPLOY_HOOK_URL` secret
+4. Writes a deploy summary to the GitHub Actions run
 
-## Test and Deploy
+### Pull images
+```bash
+docker pull ghcr.io/<your-org>/<your-repo>/backend:latest
+docker pull ghcr.io/<your-org>/<your-repo>/frontend:latest
+```
 
-Use the built-in continuous integration in GitLab.
+---
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+## Security Notes
 
-***
+- Sessions stored in MongoDB via `connect-mongo`; cookies are `httpOnly`, `sameSite: lax`, `secure` in production
+- All routes protected by `requireAuth` middleware (except `/health` and OAuth endpoints)
+- Rate limiting via `express-rate-limit`: 200 req/15 min globally, 20 req/15 min on auth routes
+- Input validation via `express-validator` `checkSchema()` on all write endpoints
+- `helmet()` sets security headers (XSS protection, HSTS, CSP, etc.)
+- Soft delete pattern preserves financial audit trail; no permanent deletes exposed
+- No customer PII included in API responses or data exports
+- Push subscription VAPID keys generated per deployment; expired subscriptions (HTTP 410) auto-cleaned
 
-# Editing this README
+---
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## Implementation Phases
 
-## Suggestions for a good README
+| Phase | Description | Tests |
+|---|---|---|
+| 1 | Project scaffolding + Docker + CI | — |
+| 2 | MongoDB models + Google OAuth | 13 |
+| 3 | Categories + Transactions CRUD | 30 |
+| 4 | Budget management + alert system | 17 |
+| 5 | Dashboard + charts | 17 |
+| 6 | Recurring transactions, multi-currency, reports, settings | 41 |
+| 7 | Coverage ≥ 80%, prod Docker, CI/CD polish | 80 (added) |
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+---
 
 ## License
-For open source projects, say how it is licensed.
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT

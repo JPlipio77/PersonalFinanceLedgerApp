@@ -1,0 +1,18 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      target: prod
+    restart: always
+    volumes: []
+    environment:
+      NODE_ENV: production
+
+  frontend:
+    build:
+      context: ./frontend
+      target: prod
+    restart: always
+    volumes: []
+    ports:
+      - '80:80'

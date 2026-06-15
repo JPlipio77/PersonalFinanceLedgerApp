@@ -1,0 +1,281 @@
+# =============================================================================
+# staging-ci.yml — Staging CI/CD for PersonalFinanceLedgerApp
+#
+# Execution order:
+#   build-and-package → staging-deploy → staging-tests
+#                                      ↘ security-scan (parallel)
+#
+# Required secrets:
+#   STAGING_HOST          — IP or hostname of the staging server
+#   STAGING_USER          — SSH username on the staging server (e.g. ubuntu, ec2-user)
+#   STAGING_SSH_KEY       — Private SSH key matching the server's authorized_keys
+#   GHCR_READ_TOKEN       — Classic PAT with read:packages scope (for docker pull on server)
+#
+# Required repository variables:
+#   STAGING_URL       — Backend base URL, e.g. http://your.server.ip:5000
+#                       Frontend is derived from this (port 5000 → port 80)
+# =============================================================================
+
+name: Staging CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+env:
+  REGISTRY:   ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+
+# =============================================================================
+# Job 1 — Build & Package
+# Builds backend and frontend Docker images, pushes to GHCR with staging tags,
+# and extracts a Jira ticket ID from the HEAD commit message for test routing.
+# =============================================================================
+jobs:
+  build-and-package:
+    name: Build & Push to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image-repo: ${{ steps.repo.outputs.name }}
+      jira-id:    ${{ steps.extract-jira.outputs.jira_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Extract Jira ticket ID from commit message
+        id: extract-jira
+        run: |
+          COMMIT_MSG="$(git log -1 --pretty=%s)"
+          JIRA_ID="$(echo "${COMMIT_MSG}" | grep -oP '[A-Z]+-\d+' | head -1 || true)"
+          if [ -z "${JIRA_ID}" ]; then
+            JIRA_ID="FALLBACK"
+          fi
+          echo "jira_id=${JIRA_ID}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved Jira ID: ${JIRA_ID}"
+
+      - name: Lowercase repo name
+        id: repo
+        run: echo "name=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate backend image metadata
+        id: meta-backend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.name }}/backend
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=staging-latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Generate frontend image metadata
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.repo.outputs.name }}/frontend
+          tags: |
+            type=sha,format=long,prefix=sha-
+            type=ref,event=branch
+            type=raw,value=staging-latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags:   ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags:   ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+
+
+# =============================================================================
+# Job 2 — Deploy to Staging
+# SSHs into the staging server via appleboy/ssh-action and hot-swaps containers
+# using Docker Compose. Performs a health check before declaring success so
+# downstream test jobs never run against a broken deployment.
+#
+# The staging server must have:
+#   - Docker + Docker Compose installed
+#   - /opt/staging/.env with MONGODB_URI, JWT_SECRET, NODE_ENV=staging, PORT=5000
+#   - SSH public key matching STAGING_SSH_KEY in authorized_keys
+# =============================================================================
+  staging-deploy:
+    name: Deploy to Staging
+    needs: build-and-package
+    runs-on: ubuntu-latest
+    environment: staging
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          BACKEND_IMAGE:  ghcr.io/${{ needs.build-and-package.outputs.image-repo }}/backend:sha-${{ github.sha }}
+          FRONTEND_IMAGE: ghcr.io/${{ needs.build-and-package.outputs.image-repo }}/frontend:sha-${{ github.sha }}
+          GHCR_TOKEN:     ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_USER:      ${{ github.actor }}
+        with:
+          host:     ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key:      ${{ secrets.STAGING_SSH_KEY }}
+          envs:     BACKEND_IMAGE,FRONTEND_IMAGE,GHCR_TOKEN,GHCR_USER
+          script: |
+            set -euo pipefail
+            cd /opt/staging
+            docker compose -f docker-compose.staging.yml down --remove-orphans 2>/dev/null || true
+            docker rm -f staging-mongo-1 staging-backend-1 staging-frontend-1 2>/dev/null || true
+            docker system prune -af 2>&1 | tail -2
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin 2>&1 | tail -1
+            docker pull --quiet "$BACKEND_IMAGE"
+            docker pull --quiet "$FRONTEND_IMAGE"
+            curl -fsSL https://raw.githubusercontent.com/JPlipio77/PersonalFinanceLedgerApp/main/infra/docker-compose.staging.yml -o docker-compose.staging.yml
+            export BACKEND_IMAGE FRONTEND_IMAGE
+            docker compose -f docker-compose.staging.yml up -d 2>&1 | tail -5
+            sleep 40
+            curl --fail --silent --show-error --max-time 15 http://localhost:5000/health \
+              || { docker compose -f docker-compose.staging.yml logs --tail 60; exit 1; }
+            echo "Deploy healthy: $BACKEND_IMAGE"
+
+
+# =============================================================================
+# Job 3 — Staging Tests
+# Runs Newman (API), Playwright (E2E), and k6 (load) tests directly from
+# tests/ in this repo against the live staging environment.
+# =============================================================================
+  staging-tests:
+    name: Staging Test Suite
+    needs: [build-and-package, staging-deploy]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Newman
+        run: npm install -g newman newman-reporter-htmlextra
+
+      - name: Install Playwright
+        run: |
+          npm install --save-dev @playwright/test
+          npx playwright install --with-deps chromium
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://dl.k6.io/key.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+            | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update -qq && sudo apt-get install -y k6
+          k6 version
+
+      - name: Newman — Auth Flows
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          mkdir -p tests/reports/newman
+          newman run tests/postman/auth-flows.collection.json \
+            --env-var "baseUrl=${STAGING_URL}/api" \
+            --reporters cli,htmlextra \
+            --reporter-htmlextra-export tests/reports/newman/auth-flows.html \
+            --bail
+
+      - name: Playwright — Auth E2E
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          npx playwright test tests/playwright/auth.spec.js \
+            --config tests/playwright/playwright.config.js
+
+      - name: k6 — Auth Load Test
+        env:
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          mkdir -p tests/reports/k6
+          k6 run \
+            -e STAGING_URL=${STAGING_URL} \
+            --summary-export tests/reports/k6/summary.json \
+            tests/k6/auth-load.js
+
+      - name: Upload Newman report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: newman-report-${{ github.sha }}
+          path: tests/reports/newman/
+          if-no-files-found: warn
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.sha }}
+          path: tests/reports/playwright/
+          if-no-files-found: warn
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-report-${{ github.sha }}
+          path: tests/reports/k6/
+          if-no-files-found: warn
+
+
+# =============================================================================
+# Job 4 — OWASP ZAP DAST Baseline (parallel with staging-tests)
+# Passive security sweep against the live staging URL.
+# fail_action: false keeps the pipeline green while logging findings to an Issue.
+# =============================================================================
+  security-scan:
+    name: OWASP ZAP Baseline DAST
+    needs: staging-deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues:   write
+
+    steps:
+      - name: ZAP Baseline Scan against staging
+        uses: zaproxy/action-baseline@v0.14.0
+        with:
+          target:              ${{ vars.STAGING_URL }}
+          fail_action:         false
+          allow_issue_writing: true
+          artifact_name:       zap-baseline-${{ github.run_id }}
+          cmd_options:         '-I -j'
