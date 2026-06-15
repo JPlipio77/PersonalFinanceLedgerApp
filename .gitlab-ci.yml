@@ -325,7 +325,7 @@ integration-test:
     # Create /opt/staging/.env expected by docker-compose.staging.yml backend service.
     # MONGODB_URI is already provided via environment: in the compose file.
     - mkdir -p /opt/staging
-    - printf 'JWT_SECRET=%s\nNODE_ENV=production\nSESSION_SECRET=%s\n' "${JWT_SECRET}" "${JWT_SECRET}" > /opt/staging/.env
+    - printf 'JWT_SECRET=%s\nNODE_ENV=development\nSESSION_SECRET=%s\n' "${JWT_SECRET}" "${JWT_SECRET}" > /opt/staging/.env
   script:
     # ── Start application via docker-compose.staging.yml ─────────────────────
     # infra/docker-compose.staging.yml reads ${BACKEND_IMAGE} and ${FRONTEND_IMAGE}
@@ -384,7 +384,7 @@ integration-test:
     # APP_URL: http://localhost:80  (nginx frontend, staging compose)
     # Playwright config reads APP_URL env var; defaults to http://localhost:3000
     # =========================================================================
-    - npm ci --prefix tests/playwright
+    - npm install --prefix tests/playwright
 
     - npx --prefix tests/playwright playwright install --with-deps chromium
 
