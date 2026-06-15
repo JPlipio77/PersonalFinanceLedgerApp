@@ -595,8 +595,8 @@ staging-deploy:
     - job: staging-build
       artifacts: true   # pulls STAGING_IMAGE_TAG, JIRA_ID from staging.env
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")'
-    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop") && $STAGING_HOST'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $STAGING_HOST'
   before_script:
     - apt-get update -qq && apt-get install -y -qq openssh-client curl
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -674,8 +674,8 @@ staging-tests:
     - job: staging-deploy
       artifacts: false  # ordering only
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")'
-    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop") && $STAGING_HOST'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $STAGING_HOST'
   before_script:
     - apt-get update -qq && apt-get install -y -qq curl
     - npm install -g newman newman-reporter-htmlextra
@@ -745,8 +745,8 @@ staging-security:
     - job: staging-deploy
       artifacts: false
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop")'
-    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop") && $STAGING_HOST'
+    - if: '$CI_PIPELINE_SOURCE == "web" && $STAGING_HOST'
   allow_failure: true   # non-blocking — mirrors fail_action: false
   script:
     - mkdir -p zap-reports
