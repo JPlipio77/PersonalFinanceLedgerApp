@@ -81,8 +81,9 @@ unit-tests:
     - cd backend
     - npm ci
   variables:
-    CI:         "true"
-    JWT_SECRET: "test-secret"
+    CI:              "true"
+    JWT_SECRET:      "test-secret"
+    MONGOMS_VERSION: "7.0.14"
   script:
     - npm run test:unit -- --json --outputFile=../unit-results.json
     # Inline summary — equivalent to ci.yml actions/github-script job summary
@@ -122,8 +123,9 @@ component-tests:
     - cd backend
     - npm ci
   variables:
-    CI:         "true"
-    JWT_SECRET: "test-secret"
+    CI:              "true"
+    JWT_SECRET:      "test-secret"
+    MONGOMS_VERSION: "7.0.14"
   script:
     - npm run test:component -- --json --outputFile=../component-results.json
     - |
