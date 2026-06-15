@@ -322,13 +322,16 @@ integration-test:
     - echo "${CR_PAT}" | docker login ghcr.io -u jplipio77 --password-stdin
     # Create report dirs
     - mkdir -p reports/{contract,e2e,performance,security}
+    # Create /opt/staging/.env expected by docker-compose.staging.yml backend service.
+    # MONGODB_URI is already provided via environment: in the compose file.
+    - mkdir -p /opt/staging
+    - printf 'JWT_SECRET=%s\nNODE_ENV=production\nSESSION_SECRET=%s\n' "${JWT_SECRET}" "${JWT_SECRET}" > /opt/staging/.env
   script:
     # ── Start application via docker-compose.staging.yml ─────────────────────
     # infra/docker-compose.staging.yml reads ${BACKEND_IMAGE} and ${FRONTEND_IMAGE}
     - |
       BACKEND_IMAGE="${GHCR_IMAGE_BASE}/backend:${IMAGE_TAG}" \
       FRONTEND_IMAGE="${GHCR_IMAGE_BASE}/frontend:${IMAGE_TAG}" \
-      JWT_SECRET="${JWT_SECRET}" \
         docker compose -f infra/docker-compose.staging.yml up -d
 
     # ── Wait for backend health (/health endpoint, port 5000) ─────────────────
