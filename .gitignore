@@ -38,3 +38,6 @@ mongo_data/
 # Test artifacts
 junit.xml
 lcov.info
+
+# GitLab CI variable values — contains secrets, never commit
+scripts/gitlab-ci-vars.env
