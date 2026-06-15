@@ -338,11 +338,11 @@ integration-test:
     # Health route: backend/src/routes/health.js — GET /health → {"status":"ok"}
     - |
       for i in $(seq 1 30); do
-        curl -sf http://localhost:5000/health && echo " backend ready" && break
+        curl -sf http://docker:5000/health && echo " backend ready" && break
         echo "Waiting for backend ($i/30)..."
         sleep 2
       done
-      curl -sf http://localhost:5000/health || {
+      curl -sf http://docker:5000/health || {
         echo "Backend health check failed. Container logs:"
         docker compose -f infra/docker-compose.staging.yml logs backend
         exit 1
@@ -351,7 +351,7 @@ integration-test:
     # ── Wait for frontend (nginx on port 80) ──────────────────────────────────
     - |
       for i in $(seq 1 15); do
-        curl -sf http://localhost:80 && echo " frontend ready" && break
+        curl -sf http://docker:80 && echo " frontend ready" && break
         echo "Waiting for frontend ($i/15)..."
         sleep 2
       done
@@ -368,7 +368,7 @@ integration-test:
       EXIT_CONTRACT=0
 
       newman run tests/postman/auth-flows.collection.json \
-        --env-var baseUrl=http://localhost:5000/api \
+        --env-var baseUrl=http://docker:5000/api \
         --reporters cli,htmlextra,json \
         --reporter-htmlextra-export reports/contract/auth-api-report.html \
         --reporter-htmlextra-title 'Auth API Contract Tests' \
@@ -392,7 +392,7 @@ integration-test:
       EXIT_E2E=0
 
       cd tests/playwright
-      APP_URL="http://localhost:80" \
+      APP_URL="http://docker:80" \
         npx playwright test --config playwright.config.js \
           2>&1 | tee ../../reports/e2e/output.log || EXIT_E2E=$?
       cd ../..
@@ -415,7 +415,7 @@ integration-test:
       EXIT_PERF=0
 
       k6 run \
-        --env STAGING_URL=http://localhost:5000 \
+        --env STAGING_URL=http://docker:5000 \
         --summary-export=reports/performance/summary.json \
         tests/k6/auth-load.js \
         2>&1 | tee reports/performance/output.log || EXIT_PERF=$?
@@ -431,11 +431,11 @@ integration-test:
     # =========================================================================
     - |
       docker run --rm \
-        --network host \
+        --network infra_ledger-staging \
         -v "$(pwd)/reports/security:/zap/wrk:rw" \
         ghcr.io/zaproxy/zaproxy:stable \
         zap-baseline.py \
-          -t "http://localhost:5000" \
+          -t "http://backend:5000" \
           -r zap-report.html \
           -J zap-report.json \
           -I \
