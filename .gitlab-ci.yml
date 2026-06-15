@@ -312,29 +312,37 @@ integration-test:
   rules:
     - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
   before_script:
-    - apt-get update -qq && apt-get install -y -qq curl docker-ce-cli
+    - apt-get update -qq && apt-get install -y -qq ca-certificates curl gnupg lsb-release
+    - install -m 0755 -d /etc/apt/keyrings
+    - curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    - chmod a+r /etc/apt/keyrings/docker.gpg
+    - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    - apt-get update -qq && apt-get install -y -qq docker-ce-cli docker-compose-plugin
     # Login to GHCR to pull images (CR_PAT needs read:packages scope)
     - echo "${CR_PAT}" | docker login ghcr.io -u jplipio77 --password-stdin
     # Create report dirs
     - mkdir -p reports/{contract,e2e,performance,security}
+    # Create /opt/staging/.env expected by docker-compose.staging.yml backend service.
+    # MONGODB_URI is already provided via environment: in the compose file.
+    - mkdir -p /opt/staging
+    - printf 'JWT_SECRET=%s\nNODE_ENV=production\nSESSION_SECRET=%s\n' "${JWT_SECRET}" "${JWT_SECRET}" > /opt/staging/.env
   script:
     # ── Start application via docker-compose.staging.yml ─────────────────────
     # infra/docker-compose.staging.yml reads ${BACKEND_IMAGE} and ${FRONTEND_IMAGE}
     - |
       BACKEND_IMAGE="${GHCR_IMAGE_BASE}/backend:${IMAGE_TAG}" \
       FRONTEND_IMAGE="${GHCR_IMAGE_BASE}/frontend:${IMAGE_TAG}" \
-      JWT_SECRET="${JWT_SECRET}" \
         docker compose -f infra/docker-compose.staging.yml up -d
 
     # ── Wait for backend health (/health endpoint, port 5000) ─────────────────
     # Health route: backend/src/routes/health.js — GET /health → {"status":"ok"}
     - |
       for i in $(seq 1 30); do
-        curl -sf http://localhost:5000/health && echo " backend ready" && break
+        curl -sf http://docker:5000/health && echo " backend ready" && break
         echo "Waiting for backend ($i/30)..."
         sleep 2
       done
-      curl -sf http://localhost:5000/health || {
+      curl -sf http://docker:5000/health || {
         echo "Backend health check failed. Container logs:"
         docker compose -f infra/docker-compose.staging.yml logs backend
         exit 1
@@ -343,7 +351,7 @@ integration-test:
     # ── Wait for frontend (nginx on port 80) ──────────────────────────────────
     - |
       for i in $(seq 1 15); do
-        curl -sf http://localhost:80 && echo " frontend ready" && break
+        curl -sf http://docker:80 && echo " frontend ready" && break
         echo "Waiting for frontend ($i/15)..."
         sleep 2
       done
@@ -360,7 +368,7 @@ integration-test:
       EXIT_CONTRACT=0
 
       newman run tests/postman/auth-flows.collection.json \
-        --env-var baseUrl=http://localhost:5000/api \
+        --env-var baseUrl=http://docker:5000/api \
         --reporters cli,htmlextra,json \
         --reporter-htmlextra-export reports/contract/auth-api-report.html \
         --reporter-htmlextra-title 'Auth API Contract Tests' \
@@ -384,7 +392,7 @@ integration-test:
       EXIT_E2E=0
 
       cd tests/playwright
-      APP_URL="http://localhost:80" \
+      APP_URL="http://docker:80" \
         npx playwright test --config playwright.config.js \
           2>&1 | tee ../../reports/e2e/output.log || EXIT_E2E=$?
       cd ../..
@@ -407,7 +415,7 @@ integration-test:
       EXIT_PERF=0
 
       k6 run \
-        --env STAGING_URL=http://localhost:5000 \
+        --env STAGING_URL=http://docker:5000 \
         --summary-export=reports/performance/summary.json \
         tests/k6/auth-load.js \
         2>&1 | tee reports/performance/output.log || EXIT_PERF=$?
@@ -423,11 +431,11 @@ integration-test:
     # =========================================================================
     - |
       docker run --rm \
-        --network host \
+        --network infra_ledger-staging \
         -v "$(pwd)/reports/security:/zap/wrk:rw" \
         ghcr.io/zaproxy/zaproxy:stable \
         zap-baseline.py \
-          -t "http://localhost:5000" \
+          -t "http://backend:5000" \
           -r zap-report.html \
           -J zap-report.json \
           -I \
