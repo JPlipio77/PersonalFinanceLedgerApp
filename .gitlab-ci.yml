@@ -268,7 +268,7 @@ build-push:
     - docker push "${GHCR_IMAGE_BASE}/frontend:${SHORT_SHA}"
     - docker push "${GHCR_IMAGE_BASE}/frontend:latest"
 
-    - echo "Images pushed: ${GHCR_IMAGE_BASE}/backend:${SHORT_SHA}"
+    - 'echo "Images pushed: ${GHCR_IMAGE_BASE}/backend:${SHORT_SHA}"'
 
   # dotenv artifact passes IMAGE_TAG to integration-test
   artifacts:
