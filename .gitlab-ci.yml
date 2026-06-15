@@ -42,9 +42,11 @@
 # Mirrors GitHub Actions `on:` triggers from ci.yml and deploy.yml combined.
 workflow:
   rules:
-    - if: '$CI_PIPELINE_SOURCE == "push"'          # all branches (mirrors ci.yml push: branches: ["**"])
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'   # PRs (mirrors pull_request to main)
-    - if: '$CI_PIPELINE_SOURCE == "web"'           # manual run (mirrors workflow_dispatch)
+    - if: '$CI_PIPELINE_SOURCE == "push"'               # all branches (mirrors ci.yml push: branches: ["**"])
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'  # PRs (mirrors pull_request to main)
+    - if: '$CI_PIPELINE_SOURCE == "web"'                # manual run from UI (mirrors workflow_dispatch)
+    - if: '$CI_PIPELINE_SOURCE == "api"'                # API-triggered runs
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'            # cross-project pipeline triggers
 
 stages:
   - test            # unit-tests, component-tests, frontend-tests (parallel) — mirrors ci.yml
