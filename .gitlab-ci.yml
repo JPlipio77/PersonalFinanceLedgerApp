@@ -601,7 +601,7 @@ staging-deploy:
     - apt-get update -qq && apt-get install -y -qq openssh-client curl
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     # STAGING_SSH_KEY must be File-type variable — GitLab writes it to a temp path
-    - cp "${STAGING_SSH_KEY}" ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+    - cp "${STAGING_SSH_KEY}" ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H "${STAGING_HOST}" >> ~/.ssh/known_hosts 2>/dev/null
   script:
     # ── SCP docker-compose.staging.yml to server ──────────────────────────────
@@ -609,7 +609,7 @@ staging-deploy:
     #   curl -fsSL https://raw.githubusercontent.com/.../docker-compose.staging.yml
     # The file is already in the workspace from checkout — SCP it directly.
     - |
-      scp -i ~/.ssh/id_deploy \
+      scp -i ~/.ssh/id_ed25519 \
           -o StrictHostKeyChecking=yes \
           infra/docker-compose.staging.yml \
           "${STAGING_USER}@${STAGING_HOST}:/opt/staging/docker-compose.staging.yml"
@@ -620,7 +620,7 @@ staging-deploy:
       BACKEND_IMG="${GHCR_IMAGE_BASE}/backend:${STAGING_IMAGE_TAG}"
       FRONTEND_IMG="${GHCR_IMAGE_BASE}/frontend:${STAGING_IMAGE_TAG}"
 
-      ssh -i ~/.ssh/id_deploy \
+      ssh -i ~/.ssh/id_ed25519 \
           -o StrictHostKeyChecking=yes \
           "${STAGING_USER}@${STAGING_HOST}" \
           BACKEND_IMAGE="${BACKEND_IMG}" \
