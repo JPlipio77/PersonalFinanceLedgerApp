@@ -390,6 +390,7 @@ integration-test:
 
     - |
       EXIT_E2E=0
+      mkdir -p reports/e2e/playwright-html
 
       cd tests/playwright
       APP_URL="http://docker:80" \
