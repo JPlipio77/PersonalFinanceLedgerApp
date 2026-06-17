@@ -1,0 +1,7 @@
+# Force LF line endings for files that run on Linux CI runners
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+*.ts   text eol=lf
+*.js   text eol=lf
+*.json text eol=lf

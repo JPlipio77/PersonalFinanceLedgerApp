@@ -320,12 +320,14 @@ integration-test:
     - apt-get update -qq && apt-get install -y -qq docker-ce-cli docker-compose-plugin
     # Login to GHCR to pull images (CR_PAT needs read:packages scope)
     - echo "${CR_PAT}" | docker login ghcr.io -u jplipio77 --password-stdin
+    # Checkout test repo
+    - git clone https://oauth2:${TESTS_REPO_TOKEN}@github.com/JPlipio77/ledger-app-tests.git ledger-app-tests
     # Create report dirs
     - mkdir -p reports/{contract,e2e,performance,security}
     # Create /opt/staging/.env expected by docker-compose.staging.yml backend service.
     # MONGODB_URI is already provided via environment: in the compose file.
     - mkdir -p /opt/staging
-    - printf 'JWT_SECRET=%s\nNODE_ENV=development\nSESSION_SECRET=%s\n' "${JWT_SECRET}" "${JWT_SECRET}" > /opt/staging/.env
+    - printf 'NODE_ENV=development\nSESSION_SECRET=%s\n' "${SESSION_SECRET}" > /opt/staging/.env
   script:
     # ── Start application via docker-compose.staging.yml ─────────────────────
     # infra/docker-compose.staging.yml reads ${BACKEND_IMAGE} and ${FRONTEND_IMAGE}
@@ -367,7 +369,7 @@ integration-test:
     - |
       EXIT_CONTRACT=0
 
-      newman run tests/postman/auth-flows.collection.json \
+      newman run ledger-app-tests/contract/auth-api.collection.json \
         --env-var baseUrl=http://docker:5000/api \
         --reporters cli,htmlextra,json \
         --reporter-htmlextra-export reports/contract/auth-api-report.html \
@@ -384,17 +386,17 @@ integration-test:
     # APP_URL: http://localhost:80  (nginx frontend, staging compose)
     # Playwright config reads APP_URL env var; defaults to http://localhost:3000
     # =========================================================================
-    - npm install --prefix tests/playwright
+    - npm ci --prefix ledger-app-tests/e2e
 
-    - npx --prefix tests/playwright playwright install --with-deps chromium
+    - npx --prefix ledger-app-tests/e2e playwright install --with-deps chromium
 
     - |
       EXIT_E2E=0
       mkdir -p reports/e2e/playwright-html
 
-      cd tests/playwright
-      APP_URL="http://docker:80" \
-        npx playwright test --config playwright.config.js \
+      cd ledger-app-tests/e2e
+      BASE_URL="http://docker:80" \
+        npx playwright test --config playwright.config.ts \
           2>&1 | tee ../../reports/e2e/output.log || EXIT_E2E=$?
       cd ../..
 
@@ -418,7 +420,7 @@ integration-test:
       k6 run \
         --env STAGING_URL=http://docker:5000 \
         --summary-export=reports/performance/summary.json \
-        tests/k6/auth-load.js \
+        ledger-app-tests/performance/load.js \
         2>&1 | tee reports/performance/output.log || EXIT_PERF=$?
 
       echo "Performance tests exit code: ${EXIT_PERF}"
@@ -678,11 +680,12 @@ staging-tests:
     - if: '$CI_PIPELINE_SOURCE == "push" && ($CI_COMMIT_BRANCH == "main" || $CI_COMMIT_BRANCH == "develop") && $STAGING_HOST'
     - if: '$CI_PIPELINE_SOURCE == "web" && $STAGING_HOST'
   before_script:
-    - apt-get update -qq && apt-get install -y -qq curl
+    - apt-get update -qq && apt-get install -y -qq curl git
+    - git clone https://oauth2:${TESTS_REPO_TOKEN}@github.com/JPlipio77/ledger-app-tests.git ledger-app-tests
     - npm install -g newman newman-reporter-htmlextra
-    # Install Playwright
-    - npm install --save-dev @playwright/test
-    - npx playwright install --with-deps chromium
+    # Install Playwright from test repo
+    - npm ci --prefix ledger-app-tests/e2e
+    - npx --prefix ledger-app-tests/e2e playwright install --with-deps chromium
     # Install k6
     - |
       curl -s https://dl.k6.io/key.gpg | gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
@@ -691,38 +694,38 @@ staging-tests:
       apt-get update -qq && apt-get install -y k6
       k6 version
   script:
-    - mkdir -p tests/reports/{newman,playwright,k6}
+    - mkdir -p ledger-app-tests/reports/{newman,playwright,k6}
 
     # ── Newman — Auth Flows API Tests ─────────────────────────────────────────
     # Identical to staging-ci.yml: baseUrl=${STAGING_URL}/api, --bail on first failure
     - |
-      newman run tests/postman/auth-flows.collection.json \
+      newman run ledger-app-tests/contract/auth-api.collection.json \
         --env-var "baseUrl=${STAGING_URL}/api" \
         --reporters cli,htmlextra \
-        --reporter-htmlextra-export tests/reports/newman/auth-flows.html \
+        --reporter-htmlextra-export ledger-app-tests/reports/newman/auth-flows.html \
         --bail
 
     # ── Playwright — Auth E2E ─────────────────────────────────────────────────
-    # Identical to staging-ci.yml: STAGING_URL env var passed to playwright config
     - |
-      STAGING_URL="${STAGING_URL}" \
-        npx playwright test tests/playwright/auth.spec.js \
-          --config tests/playwright/playwright.config.js
+      FRONTEND_URL=$(echo "${STAGING_URL}" | sed 's/:[0-9]*$//')
+      cd ledger-app-tests/e2e
+      BASE_URL="${FRONTEND_URL}" npx playwright test --config playwright.config.ts
+      cd ../..
 
     # ── k6 — Auth Load Test ───────────────────────────────────────────────────
     # Identical to staging-ci.yml: STAGING_URL env var passed to k6 script
     - |
       k6 run \
         -e STAGING_URL="${STAGING_URL}" \
-        --summary-export tests/reports/k6/summary.json \
-        tests/k6/auth-load.js
+        --summary-export ledger-app-tests/reports/k6/summary.json \
+        ledger-app-tests/performance/load.js
 
   artifacts:
     name:      "staging-tests-${CI_COMMIT_SHORT_SHA}"
     paths:
-      - tests/reports/newman/
-      - tests/reports/playwright/
-      - tests/reports/k6/
+      - ledger-app-tests/reports/newman/
+      - ledger-app-tests/reports/playwright/
+      - ledger-app-tests/reports/k6/
     expire_in: 30 days
     when:      always
 
