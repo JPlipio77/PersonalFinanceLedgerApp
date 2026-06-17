@@ -218,11 +218,7 @@ jobs:
           STAGING_URL: ${{ vars.STAGING_URL }}
         run: |
           mkdir -p ledger-app-tests/reports/newman
-          newman run ledger-app-tests/contract/auth-api.collection.json \r
-            --env-var "baseUrl=${STAGING_URL}/api" \r
-            --reporters cli,htmlextra \r
-            --reporter-htmlextra-export ledger-app-tests/reports/newman/auth-flows.html \r
-            --bail
+          newman run ledger-app-tests/contract/auth-api.collection.json  --env-var "baseUrl=${STAGING_URL}/api"  --reporters cli,htmlextra  --reporter-htmlextra-export ledger-app-tests/reports/newman/auth-flows.html  --bail
 
       - name: Playwright — Auth E2E
         env:
@@ -237,10 +233,7 @@ jobs:
           STAGING_URL: ${{ vars.STAGING_URL }}
         run: |
           mkdir -p ledger-app-tests/reports/k6
-          k6 run \r
-            -e STAGING_URL="${STAGING_URL}" \r
-            --summary-export ledger-app-tests/reports/k6/summary.json \r
-            ledger-app-tests/performance/load.js
+          k6 run  -e STAGING_URL="${STAGING_URL}"  --summary-export ledger-app-tests/reports/k6/summary.json  ledger-app-tests/performance/load.js
 
       - name: Upload Newman report
         if: always()
