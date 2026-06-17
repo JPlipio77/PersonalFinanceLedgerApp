@@ -172,8 +172,8 @@ jobs:
 
 # =============================================================================
 # Job 3 — Staging Tests
-# Runs Newman (API), Playwright (E2E), and k6 (load) tests directly from
-# tests/ in this repo against the live staging environment.
+# Checks out ledger-app-tests and runs the full suite (Newman, Playwright, k6)
+# against the live staging environment — mirrors TrueCD QA mono-repo pattern.
 # =============================================================================
   staging-tests:
     name: Staging Test Suite
@@ -181,7 +181,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout ledger-app-tests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/ledger-app-tests
+          token: ${{ secrets.TESTS_REPO_TOKEN }}
+          path: ledger-app-tests
 
       - uses: actions/setup-node@v4
         with:
@@ -190,54 +195,61 @@ jobs:
       - name: Install Newman
         run: npm install -g newman newman-reporter-htmlextra
 
-      - name: Install Playwright
-        run: |
-          npm install --save-dev @playwright/test
-          npx playwright install --with-deps chromium
+      - name: Install E2E dependencies
+        run: npm ci --prefix ledger-app-tests/e2e
+
+      - name: Install Playwright browsers
+        run: npx --prefix ledger-app-tests/e2e playwright install --with-deps chromium
 
       - name: Install k6
         run: |
-          curl -fsSL https://dl.k6.io/key.gpg \
+          curl -fsSL https://dl.k6.io/key.gpg \r
             | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
-          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \r
             | sudo tee /etc/apt/sources.list.d/k6.list
           sudo apt-get update -qq && sudo apt-get install -y k6
           k6 version
+
+      - name: Derive frontend URL
+        run: |
+          FRONTEND_URL=$(echo "${{ vars.STAGING_URL }}" | sed 's/:[0-9]*$//')
+          echo "FRONTEND_URL=${FRONTEND_URL}" >> $GITHUB_ENV
 
       - name: Newman — Auth Flows
         env:
           STAGING_URL: ${{ vars.STAGING_URL }}
         run: |
-          mkdir -p tests/reports/newman
-          newman run tests/postman/auth-flows.collection.json \
-            --env-var "baseUrl=${STAGING_URL}/api" \
-            --reporters cli,htmlextra \
-            --reporter-htmlextra-export tests/reports/newman/auth-flows.html \
+          mkdir -p ledger-app-tests/reports/newman
+          newman run ledger-app-tests/contract/auth-api.collection.json \r
+            --env-var "baseUrl=${STAGING_URL}/api" \r
+            --reporters cli,htmlextra \r
+            --reporter-htmlextra-export ledger-app-tests/reports/newman/auth-flows.html \r
             --bail
 
       - name: Playwright — Auth E2E
         env:
-          STAGING_URL: ${{ vars.STAGING_URL }}
+          BASE_URL: ${{ env.FRONTEND_URL }}
+          PLAYWRIGHT_HTML_REPORT: ../reports/playwright
         run: |
-          npx playwright test tests/playwright/auth.spec.js \
-            --config tests/playwright/playwright.config.js
+          cd ledger-app-tests/e2e
+          npx playwright test --config playwright.config.ts
 
       - name: k6 — Auth Load Test
         env:
           STAGING_URL: ${{ vars.STAGING_URL }}
         run: |
-          mkdir -p tests/reports/k6
-          k6 run \
-            -e STAGING_URL=${STAGING_URL} \
-            --summary-export tests/reports/k6/summary.json \
-            tests/k6/auth-load.js
+          mkdir -p ledger-app-tests/reports/k6
+          k6 run \r
+            -e STAGING_URL="${STAGING_URL}" \r
+            --summary-export ledger-app-tests/reports/k6/summary.json \r
+            ledger-app-tests/performance/load.js
 
       - name: Upload Newman report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: newman-report-${{ github.sha }}
-          path: tests/reports/newman/
+          path: ledger-app-tests/reports/newman/
           if-no-files-found: warn
 
       - name: Upload Playwright report
@@ -245,7 +257,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ github.sha }}
-          path: tests/reports/playwright/
+          path: ledger-app-tests/reports/playwright/
           if-no-files-found: warn
 
       - name: Upload k6 summary
@@ -253,7 +265,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: k6-report-${{ github.sha }}
-          path: tests/reports/k6/
+          path: ledger-app-tests/reports/k6/
           if-no-files-found: warn
 
 
