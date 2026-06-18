@@ -205,25 +205,79 @@ jobs:
           flags: frontend
           fail_ci_if_error: false
 
-  # ── Docker build smoke test ────────────────────────────────────────────────
-  docker-build-check:
-    name: Docker Build Check
+  # ── Build & push production images (runs after all tests pass) ───────────
+  build-push:
+    name: Build & Push Images
     runs-on: ubuntu-latest
     needs: [unit-tests, component-tests, frontend-tests]
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag:        ${{ steps.meta.outputs.tag }}
+      image_base: ${{ steps.meta.outputs.image_base }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create backend .env
-        run: |
-          cp backend/.env.example backend/.env
-          echo "SESSION_SECRET=$(openssl rand -hex 32)" >> backend/.env
-          echo "MONGODB_URI=mongodb://mongo:27017/finance_ledger" >> backend/.env
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Create frontend .env
-        run: |
-          cp frontend/.env.example frontend/.env
-          echo "VITE_API_BASE_URL=http://localhost:5000/api" >> frontend/.env
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker images (dev targets)
-        run: docker compose build
+      - name: Compute tag and image base
+        id: meta
+        run: |
+          echo "tag=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "image_base=ghcr.io/${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta.outputs.image_base }}/backend:${{ steps.meta.outputs.tag }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          target: prod
+          push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta.outputs.image_base }}/frontend:${{ steps.meta.outputs.tag }}
+
+  # ── Dispatch to test repo (runs on every push and PR) ─────────────────────
+  dispatch-tests:
+    name: Trigger Test Pipeline
+    runs-on: ubuntu-latest
+    needs: [build-push]
+
+    steps:
+      - name: Dispatch to ledger-app-tests
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.TESTS_REPO_TOKEN }}
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: 'ledger-app-tests',
+              event_type: 'app-deployed',
+              client_payload: {
+                sha:              context.sha,
+                image_tag:        '${{ needs.build-push.outputs.tag }}',
+                image_base:       '${{ needs.build-push.outputs.image_base }}',
+                triggered_by:     context.actor,
+                source_run_url:   `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              }
+            });
+            core.info('Test pipeline dispatched for image tag: ${{ needs.build-push.outputs.tag }}');
