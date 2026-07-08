@@ -1,5 +1,5 @@
 # =============================================================================
-# staging-ci.yml — Staging CI/CD for PersonalFinanceLedgerApp
+# staging-ci.yml — Staging CI/CD for personalfinanceledgerapp
 #
 # Execution order:
 #   build-and-package → staging-deploy → staging-tests
@@ -161,7 +161,7 @@ jobs:
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin 2>&1 | tail -1
             docker pull --quiet "$BACKEND_IMAGE"
             docker pull --quiet "$FRONTEND_IMAGE"
-            curl -fsSL https://raw.githubusercontent.com/JPlipio77/PersonalFinanceLedgerApp/main/infra/docker-compose.staging.yml -o docker-compose.staging.yml
+            curl -fsSL https://raw.githubusercontent.com/JPlipio77/personalfinanceledgerapp/main/infra/docker-compose.staging.yml -o docker-compose.staging.yml
             export BACKEND_IMAGE FRONTEND_IMAGE
             docker compose -f docker-compose.staging.yml up -d 2>&1 | tail -5
             sleep 40

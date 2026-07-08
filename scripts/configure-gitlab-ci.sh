@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# configure-gitlab-ci.sh — Set all CI/CD variables for PersonalFinanceLedgerApp
+# configure-gitlab-ci.sh — Set all CI/CD variables for personalfinanceledgerapp
 #
 # USAGE:
 #   GITLAB_TOKEN=<api-token> GITLAB_PROJECT=<group/project> \

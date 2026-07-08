@@ -48,7 +48,7 @@ A full-stack personal finance tracking application built with Node.js, Express, 
 ```bash
 # 1. Clone the repo
 git clone <repo-url>
-cd PersonalFinanceLedgerApp
+cd personalfinanceledgerapp
 
 # 2. Create environment files
 cp .env.example backend/.env
@@ -221,7 +221,7 @@ docker-compose down -v
 ## Project Structure
 
 ```
-PersonalFinanceLedgerApp/
+personalfinanceledgerapp/
 ├── .github/workflows/
 │   ├── ci.yml          # lint + test (coverage) + docker build on every push
 │   └── deploy.yml      # build + push to GHCR on main

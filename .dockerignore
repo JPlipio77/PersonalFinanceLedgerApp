@@ -1,0 +1,13 @@
+frontend
+infra
+.git
+.github
+*.md
+
+**/node_modules
+**/.env
+**/.env.*
+!backend/.env.example
+
+backend/coverage
+backend/tests
